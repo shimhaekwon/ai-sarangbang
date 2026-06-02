@@ -11,7 +11,8 @@ export function buildSpeakContext(session: RoomSession, speakerId: ParticipantId
   const speaker = session.participants.find((p) => p.id === speakerId)
   if (!speaker) throw new Error(`buildSpeakContext: 알 수 없는 참가자 ${speakerId}`)
   const publicHistory = session.history.filter((m) => completedNaturally(m.status)) // 완료분만(streaming/stopped/error 미주입)
-  return { participant: speaker, publicHistory }
+  const roster = session.participants.map((p) => ({ id: p.id, name: p.name }))
+  return { participant: speaker, publicHistory, roster }
 }
 
 // [H-3] 귓속말 스레드를 SpeakContext로 정규화 → 드라이버 seam([222] §8)이 동일 시그니처로 수용. 공개 history 불참조(사적 격리).
@@ -30,5 +31,11 @@ export function whisperContext(target: ParticipantId, w: Whisper, session: RoomS
       status: 'done',
       ts: 0,
     }))
-  return { participant: speaker, publicHistory }
+  // 귓속말 roster = 사람(sentinel) + 대상 둘뿐(사적 1:1, 공개 참가자 비참조)
+  const human = session.participants.find((p) => p.kind === 'human')
+  const roster = [
+    { id: HUMAN_SENTINEL, name: human?.name ?? HUMAN_SENTINEL },
+    { id: target, name: speaker.name },
+  ]
+  return { participant: speaker, publicHistory, roster }
 }

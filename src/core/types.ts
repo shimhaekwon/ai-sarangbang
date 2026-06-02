@@ -66,6 +66,7 @@ export interface Whisper {
 export interface SpeakContext {
   participant: Participant // 발화자(드라이버가 "당신은 [participant.name]"로 프레이밍)
   publicHistory: Message[] // 공개 대화(자기 포함·done만, [C-2]). 드라이버가 [이름] 라벨로 자타 구분
+  roster: { id: ParticipantId; name: string }[] // 화자 id→이름 해석용(드라이버 prompt 라벨링). seam 자기완결 → 멀티유저 이식 대비([224] §6)
 }
 
 // 시스템 라인 — 입퇴장·턴 경계 UI 전용 이벤트([226] S1 [L4]).

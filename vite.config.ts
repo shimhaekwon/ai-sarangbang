@@ -5,6 +5,16 @@ import react from '@vitejs/plugin-react'
 // 빌드/런타임(Vite) + 단위 테스트(Vitest) 단일 설정. [226] §2 — environment: jsdom.
 export default defineConfig({
   plugins: [react()],
+  // [P1] CORS 우회([224] §3 A2) — 브라우저는 동일출처 /ollama 호출, Vite가 localhost:11434로 프록시(키 없음, 우회 전용).
+  server: {
+    proxy: {
+      '/ollama': {
+        target: 'http://localhost:11434',
+        changeOrigin: true,
+        rewrite: (p) => p.replace(/^\/ollama/, ''),
+      },
+    },
+  },
   test: {
     environment: 'jsdom',
     setupFiles: ['./src/test-setup.ts'],

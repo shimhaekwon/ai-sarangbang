@@ -12,7 +12,7 @@ afterEach(() => {
 })
 
 function ctxFor(id: string, name = id): SpeakContext {
-  return { participant: { id, name, kind: 'ai', seat: 0 }, publicHistory: [] }
+  return { participant: { id, name, kind: 'ai', seat: 0 }, publicHistory: [], roster: [{ id, name }] }
 }
 
 async function consume(driver: AgentDriver, ctx: SpeakContext, signal: AbortSignal): Promise<string> {

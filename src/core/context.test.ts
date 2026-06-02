@@ -27,6 +27,13 @@ describe('buildSpeakContext([223] §4 · [C-2] self 포함)', () => {
     expect(buildSpeakContext(r, 'a1').publicHistory.map((m) => m.id)).toEqual(['d'])
   })
 
+  it('roster = 전원 {id,name}(드라이버 라벨링용)', () => {
+    const human = participant({ id: 'h', name: '나', kind: 'human', seat: 0 })
+    const ai = participant({ id: 'a1', name: '감자', kind: 'ai', seat: 1 })
+    const ctx = buildSpeakContext(room([human, ai], []), 'a1')
+    expect(ctx.roster).toEqual([{ id: 'h', name: '나' }, { id: 'a1', name: '감자' }])
+  })
+
   it('알 수 없는 화자 → throw', () => {
     expect(() => buildSpeakContext(room([], []), 'nope')).toThrow()
   })
@@ -49,6 +56,16 @@ describe('whisperContext([223] §4.1 · [M1] 정규화)', () => {
     const ai = participant({ id: 'a1', kind: 'ai', seat: 1 })
     const w: Whisper = { target: 'a1', messages: [{ by: 'human', text: 'q' }, { by: 'a1', text: '' }] }
     expect(whisperContext('a1', w, room([ai], [])).publicHistory).toHaveLength(1)
+  })
+
+  it('roster = [사람(sentinel), 대상]뿐(사적 1:1)', () => {
+    const human = participant({ id: 'h', name: '나', kind: 'human', seat: 0 })
+    const ai = participant({ id: 'a1', name: '감자', kind: 'ai', seat: 1 })
+    const w: Whisper = { target: 'a1', messages: [{ by: 'human', text: 'q' }] }
+    expect(whisperContext('a1', w, room([human, ai], [])).roster).toEqual([
+      { id: HUMAN_SENTINEL, name: '나' },
+      { id: 'a1', name: '감자' },
+    ])
   })
 
   it('알 수 없는 대상 → throw', () => {

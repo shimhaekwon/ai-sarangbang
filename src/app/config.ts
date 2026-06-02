@@ -8,8 +8,10 @@ import { t } from '../i18n'
 export interface AppConfig {
   locale: Locale
   typingMs: number // 토큰 간격(드라이버 perTokenMs로 주입, [222] §4.1). 0 = 즉시(접근성)
-  hardTimeoutMs: number // 공개 발언 무응답 안전망([222] §6)
+  hardTimeoutMs: number // 공개 발언 무응답 안전망([222] §6) — mock 기준
   whisperTimeoutMs: number // 귓속말 무응답 안전망
+  driver: 'mock' | 'ollama' // 백엔드 선택([224] §3). 기본 mock(Ollama 없이도 앱 동작)
+  ollama: { model: string; baseUrl: string; idleTimeoutMs: number }
 }
 
 export const config: AppConfig = {
@@ -17,16 +19,24 @@ export const config: AppConfig = {
   typingMs: 28, // [225] §1.2
   hardTimeoutMs: 5000, // P0 mock 기준
   whisperTimeoutMs: 30_000,
+  driver: 'mock', // ← 'ollama'로 바꾸면 실 AI(로컬 Ollama 필요: 설치 + `ollama pull <model>` + dev 서버)
+  ollama: { model: 'llama3.2', baseUrl: '/ollama', idleTimeoutMs: 60_000 }, // 첫 토큰/모델로드 지연 대비 idle 길게
 }
 
 // 데모 참가자(seat순). 사람 이름은 i18n(나/Me), AI 이름은 시연용 고유명사.
 export function demoParticipants(): Participant[] {
   return [
     { id: 'me', name: t('participant.me'), kind: 'human', seat: 0 },
-    { id: 'claude', name: '클로드', kind: 'ai', seat: 1 },
-    { id: 'gemini', name: '제미니', kind: 'ai', seat: 2 },
-    { id: 'deepseek', name: '딥식', kind: 'ai', seat: 3 },
+    { id: 'claude', name: '클로드', kind: 'ai', seat: 1, persona: '정중하고 다정한 미식가' },
+    { id: 'gemini', name: '제미니', kind: 'ai', seat: 2, persona: '실용적이고 균형 잡힌 조언가' },
+    { id: 'deepseek', name: '딥식', kind: 'ai', seat: 3, persona: '매운 음식을 좋아하는 직설적인 미식가' },
   ]
+}
+
+// Ollama system 프롬프트(persona + 라이브 사랑방 프레이밍). 한글 프레이밍은 app 계층이라 허용([221] §6은 UI 대상).
+export function ollamaSystem(p: Participant): string {
+  const persona = p.persona ? `${p.persona} ` : ''
+  return `당신은 '${p.name}'입니다. ${persona}90년대 PC통신 '사랑방' 라이브 그룹 채팅에 참여 중입니다. 캐릭터를 유지하며 한국어로 1~2문장 짧게 발언하세요. 다른 참가자 발언은 [이름] 형식으로 주어집니다. 당신 차례엔 이름 접두 없이 본문만 답하세요.`
 }
 
 // 데모 MockDriver 대사 — 턴마다 순환([225] §3 저녁메뉴 시연 차용). 사람이 새 턴을 열 때마다 다음 대사로.
