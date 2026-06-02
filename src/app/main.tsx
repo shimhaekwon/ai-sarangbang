@@ -28,9 +28,15 @@ const room: RoomSession = {
 
 const store = createRoomStore(room)
 // [중요] 드라이버 주입 단일 지점([224] §4) — config.driver로 P0(mock)/P1(ollama) 선택. Coordinator/UI 무변경.
+const byP = config.ollama.byParticipant
 const baseDriver =
   config.driver === 'ollama'
-    ? createOllamaDriver({ model: config.ollama.model, baseUrl: config.ollama.baseUrl, system: ollamaSystem })
+    ? createOllamaDriver({
+        model: (p) => byP[p.id]?.model ?? config.ollama.model, // AI별 모델(없으면 폴백)
+        think: (p) => byP[p.id]?.think, // qwen3 등 사고모드 끔
+        baseUrl: config.ollama.baseUrl,
+        system: ollamaSystem,
+      })
     : createMockDriver(demoMockConfig(config.typingMs))
 // 하드타임아웃 안전망([222] §6) 공통 적용. ollama는 첫 토큰 지연 대비 idle 길게.
 const idleTimeoutMs = config.driver === 'ollama' ? config.ollama.idleTimeoutMs : config.hardTimeoutMs

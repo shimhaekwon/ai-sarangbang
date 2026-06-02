@@ -89,6 +89,24 @@ describe('OllamaDriver([224] §3 · P1)', () => {
     await collect(createOllamaDriver({ model: 'm', fetchImpl }), freshSignal())
     expect(fetchImpl.mock.calls[0][0]).toBe('/ollama/api/chat')
   })
+
+  it('model 함수형 → 참가자별 모델 선택(AI별 다른 모델)', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(fakeResponse([chatLine('x', true)]))
+    const driver = createOllamaDriver({ model: (p) => (p.id === 'a1' ? 'model-A' : 'model-B'), fetchImpl })
+    await collect(driver, freshSignal()) // ctx().participant.id === 'a1'
+    const body = JSON.parse((fetchImpl.mock.calls[0][1] as RequestInit).body as string)
+    expect(body.model).toBe('model-A')
+  })
+
+  it('think 지정 시 body 포함, 미지정 시 생략(비-thinking 모델 안전)', async () => {
+    const fWith = vi.fn().mockResolvedValue(fakeResponse([chatLine('x', true)]))
+    await collect(createOllamaDriver({ model: 'm', think: false, fetchImpl: fWith }), freshSignal())
+    expect(JSON.parse((fWith.mock.calls[0][1] as RequestInit).body as string).think).toBe(false)
+
+    const fNone = vi.fn().mockResolvedValue(fakeResponse([chatLine('x', true)]))
+    await collect(createOllamaDriver({ model: 'm', fetchImpl: fNone }), freshSignal())
+    expect('think' in JSON.parse((fNone.mock.calls[0][1] as RequestInit).body as string)).toBe(false)
+  })
 })
 
 describe('buildOllamaMessages — prompt 매핑', () => {

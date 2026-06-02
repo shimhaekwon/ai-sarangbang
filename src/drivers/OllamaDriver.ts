@@ -10,7 +10,8 @@ export interface OllamaMessage {
 }
 
 export interface OllamaDriverConfig {
-  model: string
+  model: string | ((speaker: Participant) => string) // 단일 모델 또는 참가자별 선택(AI마다 다른 모델)
+  think?: boolean | ((speaker: Participant) => boolean | undefined) // 사고모드(qwen3 등). 미지정 시 요청 body에 미포함
   baseUrl?: string // 기본 '/ollama'(dev Vite proxy, [224] §3 CORS 우회). 직접 호출 시 'http://localhost:11434'
   system?: (speaker: Participant) => string // system 프롬프트(persona+프레이밍). 한글 프레이밍은 app/config에서 주입
   fetchImpl?: typeof fetch // 테스트 주입(기본 전역 fetch)
@@ -49,7 +50,14 @@ export function createOllamaDriver(config: OllamaDriverConfig): AgentDriver {
   return {
     async *speak(ctx, signal) {
       if (signal.aborted) throw new DOMException('aborted', 'AbortError')
-      const body = { model: config.model, messages: buildOllamaMessages(ctx, system), stream: true }
+      const model = typeof config.model === 'function' ? config.model(ctx.participant) : config.model
+      const think = typeof config.think === 'function' ? config.think(ctx.participant) : config.think
+      const body = {
+        model,
+        messages: buildOllamaMessages(ctx, system),
+        stream: true,
+        ...(think !== undefined ? { think } : {}), // 사고모드 명시 시에만 전송(비-thinking 모델엔 미포함)
+      }
       const res = await doFetch(`${baseUrl}/api/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

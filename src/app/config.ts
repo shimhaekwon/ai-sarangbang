@@ -11,7 +11,12 @@ export interface AppConfig {
   hardTimeoutMs: number // 공개 발언 무응답 안전망([222] §6) — mock 기준
   whisperTimeoutMs: number // 귓속말 무응답 안전망
   driver: 'mock' | 'ollama' // 백엔드 선택([224] §3). 기본 mock(Ollama 없이도 앱 동작)
-  ollama: { model: string; baseUrl: string; idleTimeoutMs: number }
+  ollama: {
+    model: string // byParticipant에 없는 참가자의 폴백(단일 모델 모드 = 전원 이 값)
+    baseUrl: string
+    idleTimeoutMs: number
+    byParticipant: Record<string, { model: string; think?: boolean }> // AI별 다른 모델(있으면 우선). 비우면 단일 모델
+  }
 }
 
 export const config: AppConfig = {
@@ -19,8 +24,18 @@ export const config: AppConfig = {
   typingMs: 28, // [225] §1.2
   hardTimeoutMs: 5000, // P0 mock 기준
   whisperTimeoutMs: 30_000,
-  driver: 'mock', // ← 'ollama'로 바꾸면 실 AI(로컬 Ollama 필요: 설치 + `ollama pull <model>` + dev 서버)
-  ollama: { model: 'llama3.2', baseUrl: '/ollama', idleTimeoutMs: 60_000 }, // 첫 토큰/모델로드 지연 대비 idle 길게
+  driver: 'ollama', // 'mock' = Ollama 없이 데모 / 'ollama' = 로컬 실 AI(Ollama 실행 + 모델 pull 필요)
+  ollama: {
+    model: 'exaone3.5:7.8b', // byParticipant 미지정 참가자의 폴백
+    baseUrl: '/ollama',
+    idleTimeoutMs: 60_000, // 첫 토큰/모델로드 지연 대비 idle 길게
+    // AI별 다른 모델(테마) — 다른 계열로 진짜 다양성. 비우면(=`{}`) 전원 위 model 단일 사용.
+    byParticipant: {
+      claude: { model: 'exaone3.5:7.8b' }, // 다정한 한국어(LG)
+      gemini: { model: 'gemma2:9b' }, // 구글(Gemini↔Gemma 오마주)
+      deepseek: { model: 'qwen3:8b', think: false }, // 알리바바·사고모드 끔(라이브 속도)
+    },
+  },
 }
 
 // 데모 참가자(seat순). 사람 이름은 i18n(나/Me), AI 이름은 시연용 고유명사.
