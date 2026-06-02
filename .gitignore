@@ -8,6 +8,11 @@ dist
 dist-ssr
 *.local
 
+# TS build-mode 산물(composite emit) — 빌드마다 재생성
+*.tsbuildinfo
+vite.config.js
+vite.config.d.ts
+
 # editor / OS
 .vscode/*
 !.vscode/extensions.json
