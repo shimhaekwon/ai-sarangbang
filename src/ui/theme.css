@@ -1,0 +1,117 @@
+/* 90s PC통신(하이텔/나우누리) 디자인 토큰 — [225] O1 확정안. 팔레트의 단일 소스. */
+:root {
+  --bg: #0a0e2e;
+  --panel: #11173f;
+  --panel2: #0d1235;
+  --line: #2a3470;
+  --ink: #cdd6ff;
+  --dim: #6b76b8;
+  --accent: #ffcc00;
+  --me: #46ff9c;
+  --ai1: #5ad1ff;
+  --ai2: #ffd24a;
+  --ai3: #ff7ad1;
+  --ai4: #9a8bff;
+  --stopped: #ff5b6e;
+  --whisper: #b388ff;
+  --mono: 'Galmuri11', 'DungGeunMo', 'NeoDunggeunmo', 'D2Coding', 'Consolas', monospace;
+}
+
+* { box-sizing: border-box; }
+html, body, #root { height: 100%; }
+body {
+  margin: 0;
+  background: #070a20;
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+/* 터미널 창 = 방 전체 */
+.term { display: flex; flex-direction: column; height: 100vh; background: var(--bg); }
+.bar {
+  display: flex; align-items: center; gap: 8px;
+  background: #0c1138; border-bottom: 1px solid var(--line);
+  padding: 8px 12px; color: var(--accent); font-size: 13px; letter-spacing: 1px;
+}
+.bar .dot { width: 10px; height: 10px; border-radius: 50%; }
+.bar .t { color: #cfd8ff; }
+.bar .savebar { margin-left: auto; }
+
+.body { display: grid; grid-template-columns: 1fr 220px; flex: 1; min-height: 0; }
+@media (max-width: 680px) { .body { grid-template-columns: 1fr; } .roster { display: none; } }
+.main-col { display: flex; flex-direction: column; min-height: 0; }
+
+/* 로그 화면 — 아주 옅은 CRT 스캔라인 */
+.screen { position: relative; flex: 1; overflow: hidden; padding: 14px 16px; min-height: 0; }
+.screen::after {
+  content: ""; position: absolute; inset: 0; pointer-events: none;
+  background: repeating-linear-gradient(0deg, rgba(0, 0, 0, .16) 0 1px, transparent 1px 3px); opacity: .35;
+}
+.log { height: 100%; overflow-y: auto; display: flex; flex-direction: column; gap: 7px; }
+.msg { white-space: pre-wrap; word-break: break-word; }
+.msg .who { font-weight: bold; }
+.sys { color: var(--dim); }
+.stopped { color: var(--stopped); }
+.tagx { font-size: 11px; border: 1px solid #5a2730; border-radius: 8px; padding: 0 6px; margin-left: 6px; }
+.cursor {
+  display: inline-block; width: 8px; height: 1em; vertical-align: text-bottom;
+  background: currentColor; animation: blink 1s steps(1) infinite; margin-left: 1px;
+}
+@keyframes blink { 50% { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .cursor { animation: none; } }
+
+/* 입력 */
+.composer {
+  display: flex; align-items: center; gap: 6px;
+  border-top: 1px solid var(--line); padding: 8px 16px; background: var(--panel2);
+}
+.composer .ps { color: var(--accent); }
+.composer .ip {
+  flex: 1; background: transparent; border: none; outline: none;
+  color: var(--me); font-family: var(--mono); font-size: 14px;
+}
+.composer .hint { color: var(--dim); font-size: 12px; white-space: nowrap; }
+
+/* 참가자 roster */
+.roster { border-left: 1px solid var(--line); background: var(--panel2); padding: 12px; font-size: 13px; overflow-y: auto; }
+.roster h4 { margin: 0 0 10px; color: #8fa0ff; font-size: 12px; letter-spacing: 1px; font-weight: normal; }
+.pp { display: flex; align-items: center; gap: 7px; padding: 5px 6px; border-radius: 5px; margin-bottom: 3px; }
+.pp[role="button"] { cursor: pointer; }
+.pp[role="button"]:hover { background: #16205a; }
+.pp .seat { color: var(--dim); width: 14px; text-align: right; }
+.pp .d { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.pp .nm { flex: 1; }
+.pp .st { font-size: 10.5px; color: var(--dim); }
+.pp.floor { background: #16205a; outline: 1px solid #2c3c8e; }
+.pp.floor .st { color: var(--accent); }
+.pp.queued .st { color: #7fa0ff; }
+.pp.done .st { color: #5fae7f; }
+.pp.stopped .st { color: var(--stopped); }
+
+/* 저장 */
+.savebar button {
+  font-family: var(--mono); background: #16205a; color: var(--ink);
+  border: 1px solid #2c3c8e; padding: 5px 10px; border-radius: 5px; cursor: pointer; font-size: 12px;
+}
+.savebar button:hover { background: #1d2a73; }
+.savebar .note { color: var(--dim); font-size: 11px; margin-left: 8px; }
+
+/* 귓속말 — 보라색 격리 오버레이([225] §6) */
+.whisper-overlay { position: fixed; inset: 0; background: rgba(5, 8, 25, .55); display: flex; justify-content: flex-end; z-index: 10; }
+.whisper-panel {
+  width: 340px; max-width: 90vw; height: 100%; background: var(--panel);
+  border-left: 2px solid var(--whisper); display: flex; flex-direction: column; padding: 14px;
+}
+.whisper-head { display: flex; align-items: center; justify-content: space-between; color: var(--whisper); font-weight: bold; }
+.whisper-head button { background: transparent; border: none; color: var(--whisper); font-size: 20px; cursor: pointer; line-height: 1; }
+.whisper-banner { color: var(--dim); font-size: 12px; border: 1px dashed var(--whisper); border-radius: 5px; padding: 6px 8px; margin: 8px 0; }
+.whisper-thread { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; }
+.wmsg { white-space: pre-wrap; word-break: break-word; padding: 2px 0; }
+.wmsg.wme { color: #d7c6ff; }
+.wmsg.wai { color: var(--whisper); }
+.whisper-ip {
+  background: #0d1235; border: 1px solid var(--line); outline: none; color: var(--ink);
+  font-family: var(--mono); font-size: 13px; padding: 7px 9px; border-radius: 5px;
+}
