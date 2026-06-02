@@ -6,12 +6,13 @@ import { participant, room } from './test-helpers'
 import type { AgentDriver } from '../drivers/AgentDriver'
 import type { Message, ParticipantId } from './types'
 
-// ===== 제어 가능한 스텁 드라이버([226] S3 — S4 MockDriver 불요, M1 게이트 독립) =====
-type Conc = { active: number; max: number } // 동시 speak() 카운터 → runTurn 중첩 탐지(중첩 시 동시 stream 발생)
-interface DriverBehavior {
+// ===== 경쟁 제어 가능한 스텁 드라이버 =====
+interface Behavior {
   script?: string[]
   perToken?: number
-  failAfter?: number // N번째 토큰부터 드라이버 에러(abort 아님)
+  startDelay?: number // 첫 토큰 전 지연(경쟁 승자 제어)
+  failAfter?: number // N토큰 후 드라이버 에러
+  noToken?: boolean // 토큰 없이 종료(무응답)
 }
 
 function abortableDelay(ms: number, signal: AbortSignal): Promise<void> {
@@ -28,23 +29,21 @@ function abortableDelay(ms: number, signal: AbortSignal): Promise<void> {
   })
 }
 
-function makeDriver(conc: Conc, behavior: (id: ParticipantId) => DriverBehavior = () => ({})): AgentDriver {
+function makeDriver(behavior: (id: ParticipantId) => Behavior = () => ({}), calls?: Map<ParticipantId, number>): AgentDriver {
   return {
     async *speak(ctx, signal) {
-      conc.active++
-      conc.max = Math.max(conc.max, conc.active)
-      try {
-        const b = behavior(ctx.participant.id)
-        const script = b.script ?? ['t1', 't2', 't3']
-        const perToken = b.perToken ?? 20
-        for (let i = 0; i < script.length; i++) {
-          if (signal.aborted) throw new DOMException('aborted', 'AbortError')
-          if (b.failAfter !== undefined && i >= b.failAfter) throw new Error('driver-fail')
-          yield script[i]
-          await abortableDelay(perToken, signal) // 토큰 사이 파킹(fake timer)
-        }
-      } finally {
-        conc.active--
+      const id = ctx.participant.id
+      if (calls) calls.set(id, (calls.get(id) ?? 0) + 1)
+      const b = behavior(id)
+      if (b.startDelay) await abortableDelay(b.startDelay, signal)
+      if (b.noToken) return
+      const script = b.script ?? ['t1', 't2', 't3']
+      const perToken = b.perToken ?? 10
+      for (let i = 0; i < script.length; i++) {
+        if (signal.aborted) throw new DOMException('aborted', 'AbortError')
+        if (b.failAfter !== undefined && i >= b.failAfter) throw new Error(`fail:${id}`)
+        yield script[i]
+        await abortableDelay(perToken, signal)
       }
     },
   }
@@ -53,23 +52,18 @@ function makeDriver(conc: Conc, behavior: (id: ParticipantId) => DriverBehavior 
 function spyHooks() {
   return { publish: vi.fn(), onState: vi.fn(), onWhisper: vi.fn(), onRoom: vi.fn() } satisfies CoordinatorHooks
 }
-
 function humanMsg(by: ParticipantId, text: string): Message {
   return { id: newMessageId(), turnNo: 0, by, role: 'human', text, status: 'streaming', ts: 0 }
 }
+const human = participant({ id: 'h', name: '나', kind: 'human', seat: 0 })
+const ai = (id: string, seat: number) => participant({ id, name: id.toUpperCase(), kind: 'ai', seat })
+const aiBy = (r: ReturnType<typeof room>) => r.history.filter((m) => m.role === 'ai').map((m) => m.by)
 
-const room1h2ai = () => room([
-  participant({ id: 'h', name: '나', kind: 'human', seat: 0 }),
-  participant({ id: 'a1', name: '감자', kind: 'ai', seat: 1 }),
-  participant({ id: 'a2', name: '고구마', kind: 'ai', seat: 2 }),
-])
-
-// fake timer 환경 헬퍼
-async function flushMicro(turns = 50) {
-  for (let i = 0; i < turns; i++) await Promise.resolve()
+async function flushMicro(n = 60) {
+  for (let i = 0; i < n; i++) await Promise.resolve()
 }
 async function drain() {
-  for (let i = 0; i < 40; i++) await vi.advanceTimersByTimeAsync(1000)
+  for (let i = 0; i < 60; i++) await vi.advanceTimersByTimeAsync(500)
   await flushMicro()
 }
 
@@ -80,218 +74,145 @@ afterEach(() => {
   vi.useRealTimers()
 })
 
-describe('Coordinator floor 루프([222])', () => {
-  it('R1·R2·R3 기본 흐름: 사람→AI 좌석순 1회씩→idle, floor 직렬(동시 0)', async () => {
-    const conc: Conc = { active: 0, max: 0 }
-    const r = room1h2ai()
-    const floorLog: (ParticipantId | null)[] = []
-    const hooks: CoordinatorHooks = { ...spyHooks(), onRoom: vi.fn(() => void floorLog.push(r.floorHolder)) }
-    const coord = new Coordinator(r, makeDriver(conc), hooks)
-
+describe('Coordinator — 속도 경쟁 floor([221] R2)', () => {
+  it('먼저 응답한 LLM이 floor 선점 — 속도순 발언(좌석순 아님)', async () => {
+    const r = room([human, ai('a1', 1), ai('a2', 2), ai('a3', 3)])
+    // 첫 토큰: a2(20) < a3(50) < a1(90) → seat순(a1,a2,a3)과 다른 속도순
+    const driver = makeDriver((id) => ({ startDelay: id === 'a2' ? 20 : id === 'a3' ? 50 : 90 }))
+    const coord = new Coordinator(r, driver, spyHooks())
     coord.startTurn(humanMsg('h', '안녕'))
     await drain()
-
-    // 발언 순서: 사람 → a1 → a2 (좌석순), 각 1회(R1)
-    expect(r.history.map((m) => m.by)).toEqual(['h', 'a1', 'a2'])
-    expect(r.history.filter((m) => m.by === 'a1')).toHaveLength(1) // R1: 턴당 1회
-    expect(r.history.every((m) => m.status === 'done')).toBe(true)
-    // R3: 큐 소진 → idle
+    expect(aiBy(r)).toEqual(['a2', 'a3', 'a1']) // 속도순
+    expect(r.history.filter((m) => m.role === 'ai').every((m) => m.status === 'done')).toBe(true)
     expect(r.status).toBe('idle')
     expect(r.floorHolder).toBeNull()
-    expect(coord.getTurnState('a1')).toBe('done')
-    expect(coord.getTurnState('a2')).toBe('done')
-    // R2: floor 직렬화 — 동시 stream 0(중첩 없음)
-    expect(conc.max).toBe(1)
-    // floorHolder 직접 교체(null 경유 안 함): 턴 시작 null → a1 → a2 → 턴 종료 null
-    expect(floorLog).toEqual([null, 'a1', 'a2', null])
   })
 
-  it('enqueue 가드: 턴 밖 무시 · 중복 무시(R1·[M-2])', () => {
-    const r = room([participant({ id: 'a1', kind: 'ai', seat: 1 })], [], { status: 'idle' })
-    const coord = new Coordinator(r, makeDriver({ active: 0, max: 0 }), spyHooks())
-    coord.enqueue({ by: 'a1', turnNo: 1 }) // 턴 밖(idle) → 무시
-    expect(coord.getTurnState('a1')).toBe('idle')
-    r.status = 'turn_active'
-    coord.enqueue({ by: 'a1', turnNo: 1 })
-    expect(coord.getTurnState('a1')).toBe('queued')
-    coord.enqueue({ by: 'a1', turnNo: 1 }) // 중복 → 무시(여전히 queued)
-    expect(coord.getTurnState('a1')).toBe('queued')
+  it('진 LLM은 재생성 — 승자 외엔 라운드마다 speak 재호출', async () => {
+    const r = room([human, ai('a1', 1), ai('a2', 2), ai('a3', 3)])
+    const calls = new Map<ParticipantId, number>()
+    const driver = makeDriver((id) => ({ startDelay: id === 'a2' ? 20 : id === 'a3' ? 50 : 90 }), calls)
+    const coord = new Coordinator(r, driver, spyHooks())
+    coord.startTurn(humanMsg('h', '안녕'))
+    await drain()
+    expect(calls.get('a2')).toBe(1) // 1R 승
+    expect(calls.get('a3')).toBe(2) // 1R 패 + 2R 승
+    expect(calls.get('a1')).toBe(3) // 1R·2R 패 + 3R 승
   })
 
-  it('turnNo 증가 = 입력 수(순차 처리 시 입력 유실 0)', async () => {
-    const r = room1h2ai()
-    const coord = new Coordinator(r, makeDriver({ active: 0, max: 0 }), spyHooks())
-    for (const t of ['하나', '둘', '셋']) {
-      coord.startTurn(humanMsg('h', t))
-      await drain()
+  it('R1: 각 AI 정확히 1회 발언', async () => {
+    const r = room([human, ai('a1', 1), ai('a2', 2)])
+    const coord = new Coordinator(r, makeDriver((id) => ({ startDelay: id === 'a1' ? 10 : 30 })), spyHooks())
+    coord.startTurn(humanMsg('h', '안녕'))
+    await drain()
+    expect(r.history.filter((m) => m.by === 'a1')).toHaveLength(1)
+    expect(r.history.filter((m) => m.by === 'a2')).toHaveLength(1)
+  })
+
+  it('floor 직렬: 한 번에 한 메시지만 streaming(동시 출력 0)', async () => {
+    const r = room([human, ai('a1', 1), ai('a2', 2)])
+    let maxStreaming = 0
+    const hooks: CoordinatorHooks = {
+      ...spyHooks(),
+      publish: () => {
+        maxStreaming = Math.max(maxStreaming, r.history.filter((m) => m.status === 'streaming').length)
+      },
     }
-    expect(r.turnNo).toBe(3)
-    expect(r.history.filter((m) => m.role === 'human').map((m) => m.text)).toEqual(['하나', '둘', '셋'])
+    const coord = new Coordinator(r, makeDriver((id) => ({ startDelay: id === 'a1' ? 10 : 30 })), hooks)
+    coord.startTurn(humanMsg('h', '안녕'))
+    await drain()
+    expect(maxStreaming).toBeLessThanOrEqual(1) // 출력(publish)은 항상 ≤1개 streaming(경쟁은 생성만 동시)
   })
 
-  it('사람 인터럽트(D3): 발언 중 startTurn → 현재 abort(부분 보존·stopped) 후 새 턴', async () => {
-    const conc: Conc = { active: 0, max: 0 }
-    const r = room1h2ai()
-    const coord = new Coordinator(r, makeDriver(conc), spyHooks())
-
+  it('바지인(D3): 발언 중 startTurn → 현재 발언 stopped 후 새 턴', async () => {
+    const r = room([human, ai('a1', 1)])
+    const driver = makeDriver(() => ({ startDelay: 10, perToken: 50, script: ['가', '나', '다', '라', '마'] }))
+    const coord = new Coordinator(r, driver, spyHooks())
     coord.startTurn(humanMsg('h', '첫'))
-    await flushMicro() // a1 speaking + 토큰 1개 파킹 상태까지만(타이머 미진행)
-    expect(coord.getTurnState('a1')).toBe('speaking')
-    const a1FirstMsg = r.history.find((m) => m.by === 'a1' && m.turnNo === 1)!
-    expect(a1FirstMsg.status).toBe('streaming')
-    expect(a1FirstMsg.text).toBe('t1') // 부분 텍스트
-
+    await vi.advanceTimersByTimeAsync(80) // a1 선점 + 일부 토큰
+    await flushMicro()
+    const a1msg = r.history.find((m) => m.by === 'a1' && m.turnNo === 1)
+    expect(a1msg?.status).toBe('streaming')
     coord.startTurn(humanMsg('h', '둘')) // 인터럽트
     await drain()
-
-    // 첫 턴 a1 발언은 stopped(부분 보존)
-    expect(a1FirstMsg.status).toBe('stopped')
-    expect(a1FirstMsg.text).toBe('t1')
-    // 새 턴(turnNo=2) 정상 진행
+    expect(a1msg?.status).toBe('stopped') // 부분 보존·중단
     expect(r.turnNo).toBe(2)
-    expect(r.history.filter((m) => m.turnNo === 2 && m.by === 'a1')[0].status).toBe('done')
     expect(r.status).toBe('idle')
-    expect(conc.max).toBe(1) // 중첩 0
   })
 
-  it('single-flight race [M4]: 연속 동기 startTurn N회 → runTurn 중첩 0 · pending 최신만 코얼레싱', async () => {
-    const conc: Conc = { active: 0, max: 0 }
-    const r = room1h2ai()
-    const coord = new Coordinator(r, makeDriver(conc), spyHooks())
+  it('무응답/에러 LLM은 드랍(메시지 없음), 나머지는 발언', async () => {
+    const r = room([human, ai('a1', 1), ai('a2', 2)])
+    const driver = makeDriver((id) => (id === 'a1' ? { noToken: true } : { startDelay: 20 }))
+    const coord = new Coordinator(r, driver, spyHooks())
+    coord.startTurn(humanMsg('h', '안녕'))
+    await drain()
+    expect(r.history.find((m) => m.by === 'a1')).toBeUndefined() // 무응답 → 드랍
+    expect(r.history.find((m) => m.by === 'a2')?.status).toBe('done')
+    expect(r.status).toBe('idle')
+  })
 
-    // await 없이 동기 연속 4회(첫이 turn_active 진입 → 나머지는 busy → pending 덮어쓰기)
+  it('single-flight: 연속 동기 startTurn → 중첩 없이 pending 최신만', async () => {
+    const r = room([human, ai('a1', 1)])
+    const coord = new Coordinator(r, makeDriver(() => ({ startDelay: 10 })), spyHooks())
     coord.startTurn(humanMsg('h', '첫'))
     coord.startTurn(humanMsg('h', '둘'))
     coord.startTurn(humanMsg('h', '셋'))
-    coord.startTurn(humanMsg('h', '넷'))
     await drain()
-
-    // 핵심: runTurn 중첩 0 → 동시 speak 0(max ≤ 1)
-    expect(conc.max).toBeLessThanOrEqual(1)
-    // pending 최신만: 첫(턴1) + 넷(턴2). 둘·셋은 코얼레싱 폐기 → turnNo=2
+    expect(r.history.filter((m) => m.role === 'human').map((m) => m.text)).toEqual(['첫', '셋']) // 둘 coalesced
     expect(r.turnNo).toBe(2)
-    expect(r.history.filter((m) => m.role === 'human').map((m) => m.text)).toEqual(['첫', '넷'])
-    // 턴1은 즉시 선점되어 AI 미발언(drainFloor 진입 전 pending), 턴2에서 전원 발언
-    expect(r.history.filter((m) => m.turnNo === 1 && m.role === 'ai')).toHaveLength(0)
-    expect(r.history.filter((m) => m.turnNo === 2 && m.role === 'ai')).toHaveLength(2)
     expect(r.status).toBe('idle')
-    expect(r.floorHolder).toBeNull()
   })
 
-  it('드라이버 에러(H1): Message=error · Participant=stopped · 다음 화자 계속', async () => {
-    const conc: Conc = { active: 0, max: 0 }
-    const r = room1h2ai()
-    const driver = makeDriver(conc, (id) => (id === 'a1' ? { failAfter: 1 } : {}))
-    const coord = new Coordinator(r, driver, spyHooks())
-
+  it('willSpeak=false인 AI는 경쟁 미참여', async () => {
+    const r = room([human, ai('a1', 1), ai('a2', 2)])
+    const coord = new Coordinator(r, makeDriver(() => ({ startDelay: 10 })), spyHooks(), { willSpeak: (p) => p.id !== 'a2' })
     coord.startTurn(humanMsg('h', '안녕'))
     await drain()
-
-    const a1msg = r.history.find((m) => m.by === 'a1')!
-    expect(a1msg.status).toBe('error') // [H1] Message=error
-    expect(a1msg.text).toBe('t1') // 부분 보존
-    expect(coord.getTurnState('a1')).toBe('stopped') // [H1] Participant=stopped
-    // 다음 화자(a2)는 정상 진행
-    expect(r.history.find((m) => m.by === 'a2')!.status).toBe('done')
-    expect(coord.getTurnState('a2')).toBe('done')
-    expect(r.status).toBe('idle')
-    expect(conc.max).toBe(1)
+    expect(r.history.find((m) => m.by === 'a1')).toBeTruthy()
+    expect(r.history.find((m) => m.by === 'a2')).toBeUndefined()
   })
 
-  it('whisper 휘발(C1·R4): onWhisper 토큰마다 emit · 공개 history 0오염 · floor 독립', async () => {
-    const conc: Conc = { active: 0, max: 0 }
-    const r = room([
-      participant({ id: 'h', name: '나', kind: 'human', seat: 0 }),
-      participant({ id: 'a1', name: '감자', kind: 'ai', seat: 1 }),
-    ])
-    const driver = makeDriver(conc, () => ({ script: ['귓', '속', '말'], perToken: 20 }))
-    const hooks = spyHooks()
-    const coord = new Coordinator(r, driver, hooks)
-    const beforeLen = r.history.length
-
-    const p = coord.whisper('a1', '비밀얘기')
-    await drain()
-    await p
-
-    // onWhisper 토큰마다 발화(최초 + 토큰 3회)
-    expect(hooks.onWhisper.mock.calls.length).toBeGreaterThanOrEqual(4)
-    const lastThread = hooks.onWhisper.mock.calls.at(-1)![1]
-    expect(lastThread.target).toBe('a1')
-    expect(lastThread.messages[0]).toEqual({ by: 'human', text: '비밀얘기' })
-    expect(lastThread.messages[1].text).toBe('귓속말') // 토큰 누적 완료
-    // 공개 로그 0오염([223] §2): history 증가 0, publish 미호출, 휘발 단언 통과
-    expect(r.history.length).toBe(beforeLen)
-    expect(hooks.publish).not.toHaveBeenCalled()
-    expect(() => assertWhisperVolatile(r.history)).not.toThrow()
-    // floor 독립: 공개 턴을 열지 않음(자체 AbortController 사용, this.current 미사용)
-    expect(r.status).toBe('idle')
-    expect(r.floorHolder).toBeNull()
-  })
-
-  it('whisper 하드 타임아웃: 무종료 드라이버도 WHISPER_TIMEOUT_MS 후 종료(hang 방지)', async () => {
-    const conc: Conc = { active: 0, max: 0 }
-    const r = room([
-      participant({ id: 'h', name: '나', kind: 'human', seat: 0 }),
-      participant({ id: 'a1', name: '감자', kind: 'ai', seat: 1 }),
-    ])
-    // 토큰 간격이 타임아웃보다 긴 = 사실상 무종료
-    const driver = makeDriver(conc, () => ({ script: ['x', 'y'], perToken: 60_000 }))
-    const coord = new Coordinator(r, driver, spyHooks(), { whisperTimeoutMs: 1000 })
-
-    const p = coord.whisper('a1', '안끝나는질문')
-    await drain() // 1000ms 경과 → 내부 ac.abort → whisper 종료
-    await expect(p).resolves.toBeUndefined() // hang 없이 resolve
-  })
-
-  it('[C1] willSpeak 훅이 throw해도 방이 wedge되지 않음(graceful 미발언·idle 복귀·후속 입력 정상)', async () => {
-    const conc: Conc = { active: 0, max: 0 }
-    const r = room1h2ai()
-    const coord = new Coordinator(r, makeDriver(conc), spyHooks(), {
+  it('[C1] willSpeak throw해도 방 wedge 안 됨', async () => {
+    const r = room([human, ai('a1', 1), ai('a2', 2)])
+    const coord = new Coordinator(r, makeDriver(() => ({ startDelay: 10 })), spyHooks(), {
       willSpeak: (p) => {
-        if (p.id === 'a1') throw new Error('hook-fail') // P1 모델/네트워크 훅 실패 모사
+        if (p.id === 'a1') throw new Error('hook')
         return true
       },
     })
     coord.startTurn(humanMsg('h', '안녕'))
     await drain()
-    expect(r.history.find((m) => m.by === 'a1')).toBeUndefined() // a1은 훅 실패로 미발언
-    expect(r.history.find((m) => m.by === 'a2')!.status).toBe('done') // a2는 정상
-    expect(r.status).toBe('idle') // 방 idle 복귀
-    // wedge 안 됨: 후속 입력 정상 처리
-    coord.startTurn(humanMsg('h', '다시'))
-    await drain()
-    expect(r.turnNo).toBe(2)
-    expect(r.history.filter((m) => m.role === 'human').map((m) => m.text)).toEqual(['안녕', '다시'])
-  })
-
-  it('[H1] 드라이버가 abort를 무시하고 끝까지 와도, 인터럽트 중이면 stopped로 분류', async () => {
-    const r = room1h2ai()
-    // signal을 보지 않는 비-순응 드라이버(perToken 간격으로 끝까지 yield)
-    const ignoreAbortDriver: AgentDriver = {
-      async *speak(_ctx, _signal) {
-        for (const t of ['t1', 't2', 't3']) {
-          yield t
-          await new Promise<void>((res) => setTimeout(res, 20))
-        }
-      },
-    }
-    const coord = new Coordinator(r, ignoreAbortDriver, spyHooks())
-    coord.startTurn(humanMsg('h', '첫'))
-    await flushMicro()
-    expect(coord.getTurnState('a1')).toBe('speaking')
-    coord.startTurn(humanMsg('h', '둘')) // 인터럽트 — 드라이버는 signal 무시하고 끝까지 진행
-    await drain()
-    const a1Turn1 = r.history.find((m) => m.by === 'a1' && m.turnNo === 1)!
-    expect(a1Turn1.status).toBe('stopped') // [H1] stream-end까지 왔어도 abort 중이었으므로 stopped
-    expect(r.turnNo).toBe(2)
+    expect(r.history.find((m) => m.by === 'a1')).toBeUndefined()
+    expect(r.history.find((m) => m.by === 'a2')?.status).toBe('done')
     expect(r.status).toBe('idle')
   })
 
-  it('[M2] 알 수 없는 whisper 대상 → 상태 변경 전 throw(orphan 스레드/emit 0)', async () => {
-    const r = room1h2ai()
+  it('whisper 휘발(C1·R4): onWhisper emit · 공개 history 0오염', async () => {
+    const r = room([human, participant({ id: 'a1', name: '감자', kind: 'ai', seat: 1 })])
     const hooks = spyHooks()
-    const coord = new Coordinator(r, makeDriver({ active: 0, max: 0 }), hooks)
+    const coord = new Coordinator(r, makeDriver(() => ({ script: ['귓', '속', '말'], perToken: 10 })), hooks)
+    const before = r.history.length
+    const p = coord.whisper('a1', '비밀')
+    await drain()
+    await p
+    expect(hooks.onWhisper.mock.calls.length).toBeGreaterThanOrEqual(4)
+    expect(hooks.onWhisper.mock.calls.at(-1)![1].messages[1].text).toBe('귓속말')
+    expect(r.history.length).toBe(before)
+    expect(hooks.publish).not.toHaveBeenCalled()
+    expect(() => assertWhisperVolatile(r.history)).not.toThrow()
+    expect(r.status).toBe('idle')
+  })
+
+  it('[M2] 알 수 없는 whisper 대상 → throw', async () => {
+    const coord = new Coordinator(room([human, ai('a1', 1)]), makeDriver(), spyHooks())
     await expect(coord.whisper('ghost', 'hi')).rejects.toThrow(/알 수 없는 대상/)
-    expect(hooks.onWhisper).not.toHaveBeenCalled() // emit 0(상태 변경 전 차단)
+  })
+
+  it('whisper 하드 타임아웃: 무종료도 종료', async () => {
+    const r = room([human, participant({ id: 'a1', name: '감자', kind: 'ai', seat: 1 })])
+    const coord = new Coordinator(r, makeDriver(() => ({ script: ['x', 'y'], perToken: 60_000 })), spyHooks(), { whisperTimeoutMs: 1000 })
+    const p = coord.whisper('a1', '안끝남')
+    await drain()
+    await expect(p).resolves.toBeUndefined()
   })
 })

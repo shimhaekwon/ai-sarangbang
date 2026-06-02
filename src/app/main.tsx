@@ -4,6 +4,7 @@ import { createRoot } from 'react-dom/client'
 import { Coordinator } from '../core/coordinator'
 import { createMockDriver } from '../drivers/MockDriver'
 import { createOllamaDriver } from '../drivers/OllamaDriver'
+import { stripLeadingSelfLabel } from '../drivers/stripLeadingSelfLabel'
 import { withHardTimeout } from '../drivers/withHardTimeout'
 import { newSessionId } from '../core/id'
 import type { RoomSession } from '../core/types'
@@ -31,12 +32,14 @@ const store = createRoomStore(room)
 const byP = config.ollama.byParticipant
 const baseDriver =
   config.driver === 'ollama'
-    ? createOllamaDriver({
-        model: (p) => byP[p.id]?.model ?? config.ollama.model, // AI별 모델(없으면 폴백)
-        think: (p) => byP[p.id]?.think, // qwen3 등 사고모드 끔
-        baseUrl: config.ollama.baseUrl,
-        system: ollamaSystem,
-      })
+    ? stripLeadingSelfLabel( // 이름 메아리 제거
+        createOllamaDriver({
+          model: (p) => byP[p.id]?.model ?? config.ollama.model, // AI별 모델(없으면 폴백)
+          think: (p) => byP[p.id]?.think, // qwen3 등 사고모드 끔
+          baseUrl: config.ollama.baseUrl,
+          system: ollamaSystem,
+        }),
+      )
     : createMockDriver(demoMockConfig(config.typingMs))
 // 하드타임아웃 안전망([222] §6) 공통 적용. ollama는 첫 토큰 지연 대비 idle 길게.
 const idleTimeoutMs = config.driver === 'ollama' ? config.ollama.idleTimeoutMs : config.hardTimeoutMs
