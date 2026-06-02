@@ -25,8 +25,8 @@ export const config: AppConfig = {
   typingMs: 28, // [225] §1.2
   hardTimeoutMs: 5000, // P0 mock 기준
   whisperTimeoutMs: 30_000,
-  // [M4] 최근 12개 발언 + 총 3000자까지만 모델에 전달(그 이상은 오래된 것부터 버림) → 대화가 길어져도 느려지지 않음.
-  contextWindow: { maxMessages: 12, maxChars: 3000 },
+  // [M4] 최근 8개 발언 + 총 1500자까지만 모델에 전달(그 이상은 오래된 것부터 버림). 약한 HW + 3모델 동시에 맞춰 작게.
+  contextWindow: { maxMessages: 8, maxChars: 1500 },
   driver: 'ollama', // 'mock' = Ollama 없이 데모 / 'ollama' = 로컬 실 AI(Ollama 실행 + 모델 pull 필요)
   ollama: {
     model: 'exaone3.5:7.8b', // byParticipant 미지정 참가자의 폴백
