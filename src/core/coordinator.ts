@@ -4,7 +4,7 @@
 //           승자 발언이 끝나면 남은 후보가 그 발언을 본 맥락으로 다시 경쟁·재생성. 큐 소진까지(R1 각 1회, R3).
 import type { AgentDriver } from '../drivers/AgentDriver'
 import type { Message, MessageStatus, Participant, ParticipantId, RoomSession, TurnState, Whisper } from './types'
-import { buildSpeakContext, whisperContext } from './context'
+import { buildSpeakContext, whisperContext, type ContextLimit } from './context'
 import { newMessageId } from './id'
 
 export interface CoordinatorHooks {
@@ -17,6 +17,7 @@ export interface CoordinatorHooks {
 export interface CoordinatorOptions {
   whisperTimeoutMs?: number
   willSpeak?: (p: Participant) => boolean | Promise<boolean> // D2: P0=전원(기본 true). P1+ opt-out
+  contextLimit?: ContextLimit // [M4] 발화 컨텍스트 윈도우(누적 폭증 방지). 미지정 시 무제한
 }
 
 const DEFAULT_WHISPER_TIMEOUT_MS = 30_000
@@ -30,6 +31,7 @@ export class Coordinator {
   private whispers = new Map<ParticipantId, Whisper>() // [H2] 휘발 — RoomSession과 분리([223] §2)
   private readonly whisperTimeoutMs: number
   private readonly willSpeak: (p: Participant) => boolean | Promise<boolean>
+  private readonly contextLimit?: ContextLimit
 
   constructor(
     private room: RoomSession,
@@ -39,6 +41,7 @@ export class Coordinator {
   ) {
     this.whisperTimeoutMs = opts.whisperTimeoutMs ?? DEFAULT_WHISPER_TIMEOUT_MS
     this.willSpeak = opts.willSpeak ?? (() => true)
+    this.contextLimit = opts.contextLimit
   }
 
   // ===== 통지 헬퍼 =====
@@ -161,7 +164,7 @@ export class Coordinator {
   private async raceRound(remaining: Set<ParticipantId>): Promise<{ winner: ParticipantId | null; failed: ParticipantId[] }> {
     const racers = [...remaining].map((id) => {
       const ac = new AbortController()
-      const iterator = this.driver.speak(buildSpeakContext(this.room, id), ac.signal)[Symbol.asyncIterator]()
+      const iterator = this.driver.speak(buildSpeakContext(this.room, id, this.contextLimit), ac.signal)[Symbol.asyncIterator]()
       return { id, ac, iterator }
     })
     // [D3] 마스터 abort(사람 인터럽트) → 라운드 전원 취소

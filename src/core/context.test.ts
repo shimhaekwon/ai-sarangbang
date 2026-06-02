@@ -34,6 +34,30 @@ describe('buildSpeakContext([223] §4 · [C-2] self 포함)', () => {
     expect(ctx.roster).toEqual([{ id: 'h', name: '나' }, { id: 'a1', name: '감자' }])
   })
 
+  it('[M4] maxMessages: 최근 N개만 전달(슬라이딩 윈도우)', () => {
+    const a1 = participant({ id: 'a1', name: 'A', kind: 'ai', seat: 1 })
+    const hist = Array.from({ length: 10 }, (_, i) => message({ id: `m${i}`, by: 'a1', text: `t${i}`, status: 'done', turnNo: i + 1 }))
+    const ctx = buildSpeakContext(room([a1], hist), 'a1', { maxMessages: 3 })
+    expect(ctx.publicHistory.map((m) => m.id)).toEqual(['m7', 'm8', 'm9'])
+  })
+
+  it('[M4] maxChars: 오래된 것부터 버려 budget 이하로', () => {
+    const a1 = participant({ id: 'a1', name: 'A', kind: 'ai', seat: 1 })
+    const hist = [
+      message({ id: 'a', by: 'a1', text: 'AAAAA', status: 'done', turnNo: 1 }),
+      message({ id: 'b', by: 'a1', text: 'BBBBB', status: 'done', turnNo: 2 }),
+      message({ id: 'c', by: 'a1', text: 'CCCCC', status: 'done', turnNo: 3 }),
+    ]
+    const ctx = buildSpeakContext(room([a1], hist), 'a1', { maxChars: 12 }) // 15 > 12 → 'a' 버림 → 10
+    expect(ctx.publicHistory.map((m) => m.id)).toEqual(['b', 'c'])
+  })
+
+  it('[M4] 단일 거대 발언은 budget 초과해도 최소 1개 유지', () => {
+    const a1 = participant({ id: 'a1', name: 'A', kind: 'ai', seat: 1 })
+    const hist = [message({ id: 'big', by: 'a1', text: 'X'.repeat(100), status: 'done', turnNo: 1 })]
+    expect(buildSpeakContext(room([a1], hist), 'a1', { maxChars: 10 }).publicHistory).toHaveLength(1)
+  })
+
   it('알 수 없는 화자 → throw', () => {
     expect(() => buildSpeakContext(room([], []), 'nope')).toThrow()
   })

@@ -44,7 +44,10 @@ const baseDriver =
 // 하드타임아웃 안전망([222] §6) 공통 적용. ollama는 첫 토큰 지연 대비 idle 길게.
 const idleTimeoutMs = config.driver === 'ollama' ? config.ollama.idleTimeoutMs : config.hardTimeoutMs
 const driver = withHardTimeout(baseDriver, idleTimeoutMs)
-const coord = new Coordinator(room, driver, store, { whisperTimeoutMs: config.whisperTimeoutMs })
+const coord = new Coordinator(room, driver, store, {
+  whisperTimeoutMs: config.whisperTimeoutMs,
+  contextLimit: config.contextWindow, // [M4] 맥락 윈도우(누적 폭증 방지)
+})
 
 const rootEl = document.getElementById('root')
 if (!rootEl) throw new Error('#root element not found')
