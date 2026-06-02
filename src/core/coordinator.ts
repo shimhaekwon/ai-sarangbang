@@ -76,6 +76,15 @@ export class Coordinator {
     msg.status = status
     this.publishUpdate(msg)
   }
+  // 경쟁에서 토큰을 못 낸(타임아웃/무응답) 후보를 조용히 버리지 않고 공개 로그에 (응답 없음)으로 표시.
+  // status='error' + 빈 텍스트 → UI가 (응답 없음). done이 아니라 컨텍스트엔 미주입([223] §4), MD엔 _(중단/응답없음)_.
+  private indicateNoResponse(by: ParticipantId) {
+    const p = this.room.participants.find((x) => x.id === by)
+    if (!p) return
+    const msg: Message = { id: newMessageId(), turnNo: this.room.turnNo, by, role: p.kind, text: '', status: 'error', ts: Date.now() }
+    this.publishNew(msg)
+    this.setState(by, 'stopped')
+  }
 
   // ===== 진입점(유일) =====
   startTurn(humanMsg: Message) {
@@ -127,8 +136,8 @@ export class Coordinator {
     while (remaining.size > 0 && !this.pending) {
       const { winner, failed } = await this.raceRound(remaining)
       for (const f of failed) {
-        remaining.delete(f) // 응답 못한 후보(에러/무토큰)는 이번 턴 제외
-        this.setState(f, 'idle')
+        remaining.delete(f) // 응답 못한 후보(타임아웃/무토큰)는 이번 턴 제외
+        this.indicateNoResponse(f) // 조용한 드랍 대신 공개 로그에 (응답 없음) 표식
       }
       if (winner) {
         remaining.delete(winner)

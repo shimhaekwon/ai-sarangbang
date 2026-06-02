@@ -28,11 +28,16 @@ describe('MessageLine([225] §5)', () => {
     expect(screen.getByText(t('msg.stopped'))).toBeInTheDocument()
   })
 
-  it('error → 오류 표식 + stopped(시각) 클래스', () => {
+  it('error + 빈 텍스트(무응답) → (응답 없음) 표식 + stopped(시각) 클래스', () => {
     const { container } = render(
       <MessageLine msg={message({ id: 'm', by: 'a1', text: '', status: 'error' })} name="감자" color="x" />,
     )
     expect(container.querySelector('.msg.stopped')).toBeTruthy()
+    expect(screen.getByText(t('msg.noResponse'))).toBeInTheDocument()
+  })
+
+  it('error + 부분 텍스트 → (응답 오류) 표식', () => {
+    render(<MessageLine msg={message({ id: 'm', by: 'a1', text: '부분답변', status: 'error' })} name="감자" color="x" />)
     expect(screen.getByText(t('msg.error'))).toBeInTheDocument()
   })
 

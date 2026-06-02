@@ -140,13 +140,16 @@ describe('Coordinator — 속도 경쟁 floor([221] R2)', () => {
     expect(r.status).toBe('idle')
   })
 
-  it('무응답/에러 LLM은 드랍(메시지 없음), 나머지는 발언', async () => {
+  it('무응답/에러 LLM은 (응답 없음) 표식(조용한 드랍 아님), 나머지는 발언', async () => {
     const r = room([human, ai('a1', 1), ai('a2', 2)])
     const driver = makeDriver((id) => (id === 'a1' ? { noToken: true } : { startDelay: 20 }))
     const coord = new Coordinator(r, driver, spyHooks())
     coord.startTurn(humanMsg('h', '안녕'))
     await drain()
-    expect(r.history.find((m) => m.by === 'a1')).toBeUndefined() // 무응답 → 드랍
+    const a1msg = r.history.find((m) => m.by === 'a1')
+    expect(a1msg?.status).toBe('error') // 무응답 → (응답 없음) 표식
+    expect(a1msg?.text).toBe('') // 빈 텍스트(토큰 0)
+    expect(coord.getTurnState('a1')).toBe('stopped')
     expect(r.history.find((m) => m.by === 'a2')?.status).toBe('done')
     expect(r.status).toBe('idle')
   })

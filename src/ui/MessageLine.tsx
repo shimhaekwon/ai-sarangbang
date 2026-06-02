@@ -18,7 +18,8 @@ export function MessageLine({ msg, name, color }: MessageLineProps) {
       <span className="body">{msg.text}</span>
       {streaming && <span className="cursor" aria-hidden="true" />}
       {msg.status === 'stopped' && <span className="tagx">{t('msg.stopped')}</span>}
-      {msg.status === 'error' && <span className="tagx">{t('msg.error')}</span>}
+      {/* 부분 텍스트 있으면 응답 오류, 토큰 0(타임아웃/무응답)이면 응답 없음 */}
+      {msg.status === 'error' && <span className="tagx">{msg.text ? t('msg.error') : t('msg.noResponse')}</span>}
     </div>
   )
 }
