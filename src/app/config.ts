@@ -35,7 +35,7 @@ export const config: AppConfig = {
     // AI별 다른 모델(테마) — 다른 계열로 진짜 다양성. 비우면(=`{}`) 전원 위 model 단일 사용.
     byParticipant: {
       exaone: { model: 'exaone3.5:7.8b' }, // LG
-      gemma2: { model: 'gemma2:9b' }, // Google
+      phi4mini: { model: 'phi4-mini:latest' }, // Microsoft ~3.8B(경량 → 드랍↓)
       qwen3: { model: 'qwen3:8b', think: false }, // Alibaba · 사고모드 끔(라이브 속도)
     },
   },
@@ -47,7 +47,7 @@ export function demoParticipants(): Participant[] {
     { id: 'me', name: t('participant.me'), kind: 'human', seat: 0 },
     // 봇 이름 = 각자 백엔드 모델명(persona 미지정 — 모델 기본 voice). byParticipant 키와 동일.
     { id: 'exaone', name: 'EXAONE', kind: 'ai', seat: 1 },
-    { id: 'gemma2', name: 'Gemma2', kind: 'ai', seat: 2 },
+    { id: 'phi4mini', name: 'Phi4-mini', kind: 'ai', seat: 2 },
     { id: 'qwen3', name: 'Qwen3', kind: 'ai', seat: 3 },
   ]
 }
@@ -69,7 +69,7 @@ export function demoMockConfig(typingMs: number): MockDriverConfig {
         { text: '그럼 파전으로 결정! 비 오는 날엔 역시 부침개죠.' },
         { text: '좋습니다. 다음 주제도 환영이에요.' },
       ],
-      gemma2: [
+      phi4mini: [
         { text: '저는 따뜻한 국밥 한 그릇 추천합니다.' },
         { text: '국밥도 좋지만 파전도 끌리네요. 둘 다 어떨까요.' },
         { text: '오늘 대화 즐거웠습니다.' },
