@@ -12,10 +12,12 @@ export interface RoomView {
   floorHolder: ParticipantId | null
   turnState: ReadonlyMap<ParticipantId, TurnState>
   whispers: ReadonlyMap<ParticipantId, Whisper>
+  autoActive: boolean // [C3] 자동 대화 모드 on/off
 }
 
 export interface RoomStore extends CoordinatorHooks {
   onRoom: () => void // createRoomStore가 항상 제공(CoordinatorHooks의 optional을 필수로 좁힘)
+  onAuto: (active: boolean) => void // [C3] 자동 모드 통지
   subscribe: (listener: () => void) => () => void
   getSnapshot: () => RoomView
 }
@@ -29,6 +31,7 @@ export function createRoomStore(room: RoomSession): RoomStore {
     floorHolder: room.floorHolder,
     turnState: new Map(),
     whispers: new Map(),
+    autoActive: false,
   }
   const emit = () => {
     for (const l of listeners) l()
@@ -61,6 +64,10 @@ export function createRoomStore(room: RoomSession): RoomStore {
     snapshot = { ...snapshot, status: room.status, turnNo: room.turnNo, floorHolder: room.floorHolder }
     emit()
   }
+  const onAuto = (active: boolean) => {
+    snapshot = { ...snapshot, autoActive: active }
+    emit()
+  }
 
   const subscribe = (listener: () => void) => {
     listeners.add(listener)
@@ -70,7 +77,7 @@ export function createRoomStore(room: RoomSession): RoomStore {
   }
   const getSnapshot = () => snapshot
 
-  return { publish, onState, onWhisper, onRoom, subscribe, getSnapshot }
+  return { publish, onState, onWhisper, onRoom, onAuto, subscribe, getSnapshot }
 }
 
 // React 훅 — 컴포넌트가 RoomView 전체를 구독(스냅샷 ref는 emit 시에만 교체 → 안전, 무한루프 없음).

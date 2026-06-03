@@ -47,6 +47,8 @@ const driver = withHardTimeout(baseDriver, idleTimeoutMs)
 const coord = new Coordinator(room, driver, store, {
   whisperTimeoutMs: config.whisperTimeoutMs,
   contextLimit: config.contextWindow, // [M4] 맥락 윈도우(누적 폭증 방지)
+  autoDelayMs: config.auto.delayMs, // [C3] 자동 대화
+  autoMaxTurns: config.auto.maxTurns,
 })
 
 const rootEl = document.getElementById('root')

@@ -12,12 +12,15 @@ export interface CoordinatorHooks {
   onState: (id: ParticipantId, s: TurnState) => void
   onWhisper: (target: ParticipantId, thread: Whisper) => void
   onRoom?: () => void
+  onAuto?: (active: boolean) => void // [C3] 자동 대화 모드 on/off 통지(UI 토글 동기화)
 }
 
 export interface CoordinatorOptions {
   whisperTimeoutMs?: number
   willSpeak?: (p: Participant) => boolean | Promise<boolean> // D2: P0=전원(기본 true). P1+ opt-out
   contextLimit?: ContextLimit // [M4] 발화 컨텍스트 윈도우(누적 폭증 방지). 미지정 시 무제한
+  autoDelayMs?: number // [C3] 자동 대화 턴 간 지연(기본 3000)
+  autoMaxTurns?: number // [C3] 자동 대화 최대 연속 턴(폭주 방지, 기본 8)
 }
 
 const DEFAULT_WHISPER_TIMEOUT_MS = 30_000
@@ -32,6 +35,12 @@ export class Coordinator {
   private readonly whisperTimeoutMs: number
   private readonly willSpeak: (p: Participant) => boolean | Promise<boolean>
   private readonly contextLimit?: ContextLimit
+  // [C3] 자동 대화 모드
+  private autoMode = false
+  private autoLeft = 0 // 남은 자동 턴(0이면 종료)
+  private autoCursor = 0 // 라운드로빈 화자 인덱스
+  private readonly autoDelayMs: number
+  private readonly autoMaxTurns: number
 
   constructor(
     private room: RoomSession,
@@ -42,6 +51,8 @@ export class Coordinator {
     this.whisperTimeoutMs = opts.whisperTimeoutMs ?? DEFAULT_WHISPER_TIMEOUT_MS
     this.willSpeak = opts.willSpeak ?? (() => true)
     this.contextLimit = opts.contextLimit
+    this.autoDelayMs = opts.autoDelayMs ?? 3000
+    this.autoMaxTurns = opts.autoMaxTurns ?? 8
   }
 
   // ===== 통지 헬퍼 =====
@@ -90,7 +101,8 @@ export class Coordinator {
   startTurn(humanMsg: Message) {
     humanMsg.status = 'done' // [C-1]
     this.pending = humanMsg
-    if (this.busy) this.current?.abort() // [D3] 진행 중(경쟁/발언) 즉시 중단. 루프가 pending을 다음 턴으로
+    if (this.autoMode) this.setAuto(false) // [C3] 사람 입력 → 자동 일시정지(사람 우선)
+    if (this.busy) this.current?.abort() // [D3] 진행 중(경쟁/발언/지연) 즉시 중단. 루프가 pending을 다음 턴으로
     else void this.runLoop()
   }
 
@@ -98,18 +110,45 @@ export class Coordinator {
     return this.turnState.get(id) ?? 'idle'
   }
 
-  // [H-1] 단일 비행 턴 루프 — busy 가드로 절대 중첩 없음. 인터럽트는 pending 교체로 흡수.
+  // [C3] 자동 대화 시작/정지 — 사람 없이 AI끼리 라운드로빈으로 진행.
+  startAutoMode() {
+    this.autoLeft = this.autoMaxTurns
+    this.setAuto(true)
+    if (!this.busy) void this.runLoop()
+  }
+  stopAutoMode() {
+    this.setAuto(false)
+    this.current?.abort() // 진행 중 자동 발언/지연 즉시 중단
+  }
+  isAutoActive(): boolean {
+    return this.autoMode
+  }
+  private setAuto(active: boolean) {
+    if (this.autoMode === active) return
+    this.autoMode = active
+    this.hooks.onAuto?.(active)
+  }
+
+  // [H-1] 단일 비행 턴 루프 — busy 가드로 절대 중첩 없음. 인터럽트는 pending 교체로 흡수. [C3] 자동 모드 턴도 여기서.
   private async runLoop() {
     this.busy = true
     try {
-      while (this.pending) {
-        const humanMsg = this.pending
-        this.pending = null
-        await this.runTurn(humanMsg)
+      // 사람 입력(우선) 또는 자동 모드가 남아 있는 동안 턴을 돈다.
+      while (this.pending || (this.autoMode && this.autoLeft > 0)) {
+        if (this.pending) {
+          const humanMsg = this.pending
+          this.pending = null
+          await this.runTurn(humanMsg) // 사람 턴: 전원 속도 경쟁
+        } else {
+          await this.runAutoTurn() // [C3] 자동 턴: 한 AI(라운드로빈)만 발언
+          this.autoLeft--
+          if (this.autoMode && this.autoLeft > 0 && !this.pending) await this.interruptibleDelay(this.autoDelayMs)
+        }
       }
     } finally {
       // [C1] busy는 어떤 경우에도 해제. 비정상 종료 시 안전 복귀(정상 경로는 runTurn 말미가 이미 처리).
       this.busy = false
+      if (this.autoLeft <= 0) this.setAuto(false) // 최대 턴 도달 → 자동 종료(UI 토글 off)
       if (this.room.status !== 'idle' && !this.pending) {
         this.room.floorHolder = null
         this.room.status = 'idle'
@@ -250,6 +289,64 @@ export class Coordinator {
       this.endMessage(msg, st)
       this.setState(id, 'stopped') // [H-2] 드라이버 에러 = Message:error / Participant:stopped
     }
+  }
+
+  // [C3] 자동 턴 — 한 AI(라운드로빈)만 직전 대화에 반응해 발언(사람 opener 없음).
+  private async runAutoTurn() {
+    const ais = this.room.participants.filter((p) => p.kind === 'ai').sort((a, b) => a.seat - b.seat)
+    if (ais.length === 0) {
+      this.setAuto(false)
+      return
+    }
+    const speaker = ais[this.autoCursor % ais.length]
+    this.autoCursor++
+    this.room.turnNo++
+    this.room.status = 'turn_active'
+    this.notifyRoom()
+    this.room.floorHolder = speaker.id
+    this.setState(speaker.id, 'speaking')
+    this.notifyRoom()
+    const ac = new AbortController()
+    this.current = ac
+    await this.streamMessage(speaker.id, ac.signal)
+    this.current = null
+    this.room.floorHolder = null
+    if (!this.pending) this.room.status = 'idle'
+    this.notifyRoom()
+  }
+
+  // 단일 AI 발언 스트림(경쟁 없음 — 자동 턴용). 빈 응답은 (응답 없음)으로.
+  private async streamMessage(by: ParticipantId, signal: AbortSignal): Promise<void> {
+    const msg = this.beginMessage(by, this.room.turnNo)
+    try {
+      for await (const tok of this.driver.speak(buildSpeakContext(this.room, by, this.contextLimit), signal)) {
+        this.appendToken(msg, tok)
+      }
+      const status: MessageStatus = signal.aborted ? 'stopped' : msg.text ? 'done' : 'error'
+      this.endMessage(msg, status)
+      this.setState(by, status === 'done' ? 'done' : 'stopped')
+    } catch {
+      const st: MessageStatus = signal.aborted ? 'stopped' : 'error'
+      this.endMessage(msg, st)
+      this.setState(by, 'stopped')
+    }
+  }
+
+  // 자동 턴 사이 지연 — 사람 입력(startTurn)·정지(stopAutoMode)의 current.abort()로 즉시 깨움(reject 아님, 그냥 진행).
+  private interruptibleDelay(ms: number): Promise<void> {
+    return new Promise<void>((resolve) => {
+      const ac = new AbortController()
+      this.current = ac
+      const t = setTimeout(() => {
+        if (this.current === ac) this.current = null
+        resolve()
+      }, ms)
+      ac.signal.addEventListener('abort', () => {
+        clearTimeout(t)
+        if (this.current === ac) this.current = null
+        resolve()
+      }, { once: true })
+    })
   }
 
   // [H2] 귓속말 — floor 밖. 휘발 Map. 자체 타임아웃. [H-3] 컨텍스트는 whisperContext가 SpeakContext로.

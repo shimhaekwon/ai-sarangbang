@@ -40,6 +40,13 @@ export function Room({ room, store, coord }: RoomProps) {
         <span className="dot" style={{ background: '#febc2e' }} />
         <span className="dot" style={{ background: '#28c840' }} />
         <span className="t">{t('app.title')}</span>
+        <button
+          className="auto-btn"
+          aria-pressed={view.autoActive}
+          onClick={() => (view.autoActive ? coord.stopAutoMode() : coord.startAutoMode())}
+        >
+          {view.autoActive ? t('auto.stop') : t('auto.start')}
+        </button>
         <SaveBar room={room} />
       </div>
       <div className="body">

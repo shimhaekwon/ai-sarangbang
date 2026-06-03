@@ -7,7 +7,7 @@ import type { RoomView } from '../app/store'
 import type { TurnState } from '../core/types'
 
 function mkView(over: Partial<RoomView> = {}): RoomView {
-  return { history: [], status: 'turn_active', turnNo: 1, floorHolder: null, turnState: new Map(), whispers: new Map(), ...over }
+  return { history: [], status: 'turn_active', turnNo: 1, floorHolder: null, turnState: new Map(), whispers: new Map(), autoActive: false, ...over }
 }
 const ps = () => [
   participant({ id: 'h', name: '나', kind: 'human', seat: 0 }),

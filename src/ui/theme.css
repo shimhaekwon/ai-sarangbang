@@ -37,7 +37,14 @@ body {
 }
 .bar .dot { width: 10px; height: 10px; border-radius: 50%; }
 .bar .t { color: #cfd8ff; }
-.bar .savebar { margin-left: auto; }
+.bar .savebar { margin-left: 8px; }
+.auto-btn {
+  margin-left: auto;
+  font-family: var(--mono); background: #16205a; color: var(--ink);
+  border: 1px solid #2c3c8e; padding: 5px 10px; border-radius: 5px; cursor: pointer; font-size: 12px;
+}
+.auto-btn:hover { background: #1d2a73; }
+.auto-btn[aria-pressed="true"] { background: #5a2730; border-color: #a4324a; color: #ffd0d6; } /* 멈춤(자동 활성) */
 
 .body { display: grid; grid-template-columns: 1fr 220px; flex: 1; min-height: 0; }
 @media (max-width: 680px) { .body { grid-template-columns: 1fr; } .roster { display: none; } }

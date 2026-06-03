@@ -7,7 +7,7 @@ import type { RoomView } from '../app/store'
 import type { Coordinator } from '../core/coordinator'
 
 function mkView(over: Partial<RoomView> = {}): RoomView {
-  return { history: [], status: 'idle', turnNo: 0, floorHolder: null, turnState: new Map(), whispers: new Map(), ...over }
+  return { history: [], status: 'idle', turnNo: 0, floorHolder: null, turnState: new Map(), whispers: new Map(), autoActive: false, ...over }
 }
 const ps = [participant({ id: 'a1', name: '감자', kind: 'ai', seat: 1 })]
 const mockCoord = () => ({ whisper: vi.fn() }) as unknown as Coordinator

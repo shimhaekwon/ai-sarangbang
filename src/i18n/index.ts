@@ -25,6 +25,8 @@ const ko: Dict = {
   'whisper.close': '닫기',
   'save.button': '대화 저장',
   'save.note': '귓속말 제외',
+  'auto.start': '자동 진행',
+  'auto.stop': '멈춤',
   'participant.me': '나',
 }
 
@@ -50,6 +52,8 @@ const en: Dict = {
   'whisper.close': 'close',
   'save.button': 'Save chat',
   'save.note': 'whisper excluded',
+  'auto.start': 'Auto',
+  'auto.stop': 'Stop',
   'participant.me': 'Me',
 }
 

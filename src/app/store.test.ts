@@ -71,4 +71,13 @@ describe('createRoomStore — UI↔core 동기화([226] S2.5)', () => {
     store.publish(message({ id: 'm1', by: 'a1' }))
     expect(store.getSnapshot()).not.toBe(s1) // emit 후 새 ref
   })
+
+  it('[C3] onAuto: autoActive 갱신', () => {
+    const store = createRoomStore(baseRoom())
+    expect(store.getSnapshot().autoActive).toBe(false)
+    store.onAuto(true)
+    expect(store.getSnapshot().autoActive).toBe(true)
+    store.onAuto(false)
+    expect(store.getSnapshot().autoActive).toBe(false)
+  })
 })

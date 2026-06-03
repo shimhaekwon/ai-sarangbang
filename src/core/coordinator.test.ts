@@ -50,7 +50,7 @@ function makeDriver(behavior: (id: ParticipantId) => Behavior = () => ({}), call
 }
 
 function spyHooks() {
-  return { publish: vi.fn(), onState: vi.fn(), onWhisper: vi.fn(), onRoom: vi.fn() } satisfies CoordinatorHooks
+  return { publish: vi.fn(), onState: vi.fn(), onWhisper: vi.fn(), onRoom: vi.fn(), onAuto: vi.fn() } satisfies CoordinatorHooks
 }
 function humanMsg(by: ParticipantId, text: string): Message {
   return { id: newMessageId(), turnNo: 0, by, role: 'human', text, status: 'streaming', ts: 0 }
@@ -217,5 +217,46 @@ describe('Coordinator — 속도 경쟁 floor([221] R2)', () => {
     const p = coord.whisper('a1', '안끝남')
     await drain()
     await expect(p).resolves.toBeUndefined()
+  })
+
+  it('[C3] 자동 모드: 한 AI씩 라운드로빈으로 최대 N턴 발언 후 자동 정지', async () => {
+    const r = room([human, ai('a1', 1), ai('a2', 2)])
+    const hooks = spyHooks()
+    const coord = new Coordinator(r, makeDriver(() => ({ script: ['응답'], perToken: 5 })), hooks, { autoMaxTurns: 4, autoDelayMs: 100 })
+    coord.startAutoMode()
+    await drain()
+    const aiMsgs = r.history.filter((m) => m.role === 'ai')
+    expect(aiMsgs.map((m) => m.by)).toEqual(['a1', 'a2', 'a1', 'a2']) // 라운드로빈 · 4턴
+    expect(coord.isAutoActive()).toBe(false) // 최대 턴 후 자동 정지
+    expect(r.status).toBe('idle')
+    expect(hooks.onAuto).toHaveBeenCalledWith(true) // 시작 통지
+    expect(hooks.onAuto).toHaveBeenLastCalledWith(false) // 정지 통지
+  })
+
+  it('[C3] stopAutoMode로 즉시 정지(진행 중 발언 중단)', async () => {
+    const r = room([human, ai('a1', 1)])
+    const coord = new Coordinator(r, makeDriver(() => ({ script: ['가', '나', '다'], perToken: 50 })), spyHooks(), { autoMaxTurns: 10, autoDelayMs: 100 })
+    coord.startAutoMode()
+    await vi.advanceTimersByTimeAsync(60) // a1 발언 시작
+    await flushMicro()
+    expect(coord.isAutoActive()).toBe(true)
+    coord.stopAutoMode()
+    await drain()
+    expect(coord.isAutoActive()).toBe(false)
+    expect(r.status).toBe('idle')
+    expect(r.history.filter((m) => m.role === 'ai').length).toBeLessThan(10) // 폭주 안 함
+  })
+
+  it('[C3] 사람 입력 시 자동 정지(사람 우선) + 사람 턴 처리', async () => {
+    const r = room([human, ai('a1', 1)])
+    const coord = new Coordinator(r, makeDriver(() => ({ script: ['오토'], perToken: 5 })), spyHooks(), { autoMaxTurns: 10, autoDelayMs: 1000 })
+    coord.startAutoMode()
+    await vi.advanceTimersByTimeAsync(50) // 첫 자동 턴 진행
+    await flushMicro()
+    coord.startTurn(humanMsg('h', '사람입력'))
+    await drain()
+    expect(coord.isAutoActive()).toBe(false) // 사람 입력 → 자동 정지
+    expect(r.history.find((m) => m.by === 'h')?.text).toBe('사람입력') // 사람 발언 처리됨
+    expect(r.status).toBe('idle')
   })
 })

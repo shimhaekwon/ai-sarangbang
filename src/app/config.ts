@@ -11,6 +11,7 @@ export interface AppConfig {
   hardTimeoutMs: number // 공개 발언 무응답 안전망([222] §6) — mock 기준
   whisperTimeoutMs: number // 귓속말 무응답 안전망
   contextWindow: { maxMessages: number; maxChars: number } // [M4] 모델에 보낼 최근 맥락 상한(누적 폭증/느려짐 방지)
+  auto: { delayMs: number; maxTurns: number } // [C3] 자동 대화: 턴 간 지연·최대 연속 턴(폭주 방지)
   driver: 'mock' | 'ollama' // 백엔드 선택([224] §3). 기본 mock(Ollama 없이도 앱 동작)
   ollama: {
     model: string // byParticipant에 없는 참가자의 폴백(단일 모델 모드 = 전원 이 값)
@@ -27,6 +28,7 @@ export const config: AppConfig = {
   whisperTimeoutMs: 30_000,
   // [M4] 최근 8개 발언 + 총 1500자까지만 모델에 전달(그 이상은 오래된 것부터 버림). 약한 HW + 3모델 동시에 맞춰 작게.
   contextWindow: { maxMessages: 8, maxChars: 1500 },
+  auto: { delayMs: 3500, maxTurns: 8 }, // [C3] 나 없이 AI끼리: 3.5초 간격, 최대 8턴 후 자동 정지
   driver: 'ollama', // 'mock' = Ollama 없이 데모 / 'ollama' = 로컬 실 AI(Ollama 실행 + 모델 pull 필요)
   ollama: {
     model: 'exaone3.5:7.8b', // byParticipant 미지정 참가자의 폴백
