@@ -1,5 +1,5 @@
 // 핵심 도메인 타입 — Coordinator가 프레임워크 무관 순수 모듈이라 UI/드라이버와 분리([223] §1, [221] §6).
-// [222] §4·§8의 Intent/Message/Participant/SpeakContext/AgentDriver가 모두 여기서 파생.
+// [222] §8의 Message/Participant/SpeakContext/AgentDriver가 모두 여기서 파생.
 // [중요] 이 파일은 react/react-dom/DOM을 import하지 않는다(core 순수성, [224] §1).
 
 export type ParticipantId = string
@@ -14,7 +14,7 @@ export interface Participant {
   id: ParticipantId
   name: string
   kind: 'human' | 'ai'
-  seat: number // [H4] 좌석 순서(0-based). D4 tie-break(동시 도착 시 좌석순) = collectIntents enqueue 순서([222] §4)
+  seat: number // [H4] 좌석 순서(0-based). [227] 발언 순서는 매 턴 랜덤 셔플 — seat은 AI 후보 수집·roster 표시 순서용
   persona?: string // AI 캐릭터 프롬프트(목/Ollama/API 공통). human은 미사용
   color?: string // 90s 감성 발화 색([221] §1). 미지정 시 UI 기본 팔레트
 }
@@ -35,12 +35,6 @@ export interface Message {
   text: string // 원문 전체(요약·절삭 없음, [223] §3)
   status: MessageStatus // [C-1] 사람 메시지는 생성 즉시 'done'(스트리밍 없음) → context done 필터에 포함되어 AI가 봄
   ts: number // 발언 시작 시각(epoch ms)
-}
-
-// 발언 의사 — floor 큐의 원소([222] §4). 출력 권한이 아니라 "말하겠다"는 신청.
-export interface Intent {
-  by: ParticipantId
-  turnNo: number
 }
 
 // 방 세션 — 라이브 턴제 1회분(v1 RoundSession 계승, [223] §1).
@@ -67,14 +61,4 @@ export interface SpeakContext {
   participant: Participant // 발화자(드라이버가 "당신은 [participant.name]"로 프레이밍)
   publicHistory: Message[] // 공개 대화(자기 포함·done만, [C-2]). 드라이버가 [이름] 라벨로 자타 구분
   roster: { id: ParticipantId; name: string }[] // 화자 id→이름 해석용(드라이버 prompt 라벨링). seam 자기완결 → 멀티유저 이식 대비([224] §6)
-}
-
-// 시스템 라인 — 입퇴장·턴 경계 UI 전용 이벤트([226] S1 [L4]).
-// [중요] Message가 아니다 — history/MD/스냅샷 미포함(공개 로그 불변식 유지).
-export interface SystemLine {
-  id: string
-  kind: 'join' | 'leave' | 'turn-start' | 'turn-end'
-  turnNo?: number
-  participantId?: ParticipantId
-  ts: number
 }
