@@ -6,7 +6,17 @@ import react from '@vitejs/plugin-react'
 export default defineConfig({
   plugins: [react()],
   // [P1] CORS 우회([224] §3 A2) — 브라우저는 동일출처 /ollama 호출, Vite가 localhost:11434로 프록시(키 없음, 우회 전용).
+  // [228 C1/D-8] dev + preview 모두 프록시(로비 /api/tags·/api/chat). prod 서빙은 별도 프록시 필요(prod 미지원 명시).
   server: {
+    proxy: {
+      '/ollama': {
+        target: 'http://localhost:11434',
+        changeOrigin: true,
+        rewrite: (p) => p.replace(/^\/ollama/, ''),
+      },
+    },
+  },
+  preview: {
     proxy: {
       '/ollama': {
         target: 'http://localhost:11434',

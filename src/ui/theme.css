@@ -127,3 +127,56 @@ body {
   background: #0d1235; border: 1px solid var(--line); outline: none; color: var(--ink);
   font-family: var(--mono); font-size: 13px; padding: 7px 9px; border-radius: 5px;
 }
+
+/* [228] 헤더 [설정](로비 복귀) 버튼 — auto-btn/savebar와 동일 톤 */
+.leave-btn {
+  font-family: var(--mono); background: #16205a; color: var(--ink);
+  border: 1px solid #2c3c8e; padding: 5px 10px; border-radius: 5px; cursor: pointer; font-size: 12px;
+}
+.leave-btn:hover { background: #1d2a73; }
+
+/* [228] 진입 로비 — 모델 선택 카드 */
+.lobby { display: flex; align-items: center; justify-content: center; min-height: 100vh; background: var(--bg); padding: 20px; }
+.lb-card {
+  width: 100%; max-width: 560px; background: var(--panel);
+  border: 1px solid var(--line); border-radius: 8px; padding: 24px;
+}
+.lb-card h1 { margin: 0 0 4px; color: var(--accent); font-size: 18px; letter-spacing: 1px; }
+.lb-sub { margin: 0 0 18px; color: var(--dim); font-size: 13px; }
+.lb-status { color: var(--dim); padding: 24px 0; text-align: center; }
+.lb-error { color: var(--ink); padding: 14px; border: 1px dashed var(--stopped); border-radius: 6px; }
+.lb-error > div:first-child { margin-bottom: 10px; }
+.lb-hint { color: var(--dim); font-size: 12px; margin: 6px 0 10px; }
+.lb-warn {
+  color: var(--accent); font-size: 12px; border: 1px solid #5a4a10;
+  border-radius: 5px; padding: 6px 9px; margin-bottom: 14px;
+}
+.lb-human { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; }
+.lb-label { color: var(--dim); font-size: 12px; min-width: 56px; }
+.lb-slots { display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px; }
+.lb-slot { display: flex; align-items: center; gap: 8px; }
+.lb-slot.lb-gone select { border-color: var(--stopped); }
+.lb-slot select, .lb-name {
+  font-family: var(--mono); background: #0d1235; color: var(--ink);
+  border: 1px solid var(--line); border-radius: 5px; padding: 6px 8px; font-size: 13px;
+}
+.lb-slot select { flex: 1; min-width: 0; }
+.lb-name { width: 130px; }
+.lb-human .lb-name { width: auto; flex: 1; }
+.lb-think { display: flex; align-items: center; gap: 4px; color: var(--dim); font-size: 12px; white-space: nowrap; cursor: pointer; }
+.lb-x { background: transparent; border: none; color: var(--dim); cursor: pointer; font-size: 14px; padding: 4px 6px; }
+.lb-x:hover { color: var(--stopped); }
+.lb-actions { display: flex; align-items: center; gap: 10px; }
+.lb-actions button {
+  font-family: var(--mono); background: #16205a; color: var(--ink);
+  border: 1px solid #2c3c8e; border-radius: 5px; padding: 7px 14px; cursor: pointer; font-size: 13px;
+}
+.lb-actions button:hover:not(:disabled) { background: #1d2a73; }
+.lb-actions button:disabled { opacity: .45; cursor: not-allowed; }
+.lb-enter { margin-left: auto; background: #1c5a37; border-color: #2f8e53; color: #d6ffe6; }
+.lb-enter:hover:not(:disabled) { background: #237045; }
+.lb-demo-link {
+  display: block; background: transparent; border: none; color: var(--dim);
+  cursor: pointer; font-size: 12px; margin-top: 16px; text-decoration: underline; font-family: var(--mono);
+}
+.lb-demo-link:hover { color: var(--ink); }

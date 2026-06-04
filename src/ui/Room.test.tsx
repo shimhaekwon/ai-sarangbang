@@ -25,7 +25,7 @@ function setup() {
 describe('Room — 동작하는 사랑방(엔드투엔드)', () => {
   it('사람 입력 → AI 발언이 로그에 [이름]으로 렌더', async () => {
     const { room, store, coord } = setup()
-    render(<Room room={room} store={store} coord={coord} />)
+    render(<Room room={room} store={store} coord={coord} onLeave={() => {}} />)
     const input = screen.getByPlaceholderText(t('composer.placeholder'))
     fireEvent.change(input, { target: { value: '안녕' } })
     fireEvent.keyDown(input, { key: 'Enter' })

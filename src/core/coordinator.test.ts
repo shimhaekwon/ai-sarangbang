@@ -273,4 +273,58 @@ describe('Coordinator — 랜덤 순서 직렬 floor([227])', () => {
     expect(r.history.find((m) => m.by === 'h')?.text).toBe('사람입력')
     expect(r.status).toBe('idle')
   })
+
+  // ===== [228] dispose (세션 teardown — 로비↔방 전환) =====
+  it('[228] dispose: 진행 중 발언 abort → stopped, 이후 다음 화자 발언 0(루프 차단)', async () => {
+    const r = room([human, ai('a1', 1), ai('a2', 2)])
+    const coord = new Coordinator(r, makeDriver(() => ({ perToken: 50, script: ['가', '나', '다', '라'] })), spyHooks(), { rng: seatOrderRng })
+    coord.startTurn(humanMsg('h', '안녕'))
+    await vi.advanceTimersByTimeAsync(60) // a1 발언 시작 + 일부 토큰
+    await flushMicro()
+    const a1 = r.history.find((m) => m.by === 'a1')
+    expect(a1?.status).toBe('streaming')
+    coord.dispose()
+    await drain()
+    expect(a1?.status).toBe('stopped') // 진행 중 발언 중단(부분 보존)
+    expect(r.history.find((m) => m.by === 'a2')).toBeUndefined() // 다음 화자 진입 차단
+  })
+
+  it('[228] dispose 후 startTurn/startAutoMode/whisper 전부 무시', async () => {
+    const r = room([human, ai('a1', 1)])
+    const hooks = spyHooks()
+    const coord = new Coordinator(r, makeDriver(), hooks, { rng: seatOrderRng })
+    coord.dispose()
+    const before = r.history.length
+    coord.startTurn(humanMsg('h', '안녕'))
+    coord.startAutoMode()
+    await coord.whisper('a1', '비밀')
+    await drain()
+    expect(r.history.length).toBe(before) // 발언 0
+    expect(coord.isAutoActive()).toBe(false)
+    expect(hooks.onWhisper).not.toHaveBeenCalled()
+  })
+
+  it('[228] dispose가 진행 중 자동 모드 종료 + 이후 턴 0', async () => {
+    const r = room([human, ai('a1', 1)])
+    const coord = new Coordinator(r, makeDriver(() => ({ script: ['가', '나'], perToken: 50 })), spyHooks(), { autoMaxTurns: 10, autoDelayMs: 100 })
+    coord.startAutoMode()
+    await vi.advanceTimersByTimeAsync(60)
+    await flushMicro()
+    expect(coord.isAutoActive()).toBe(true)
+    coord.dispose()
+    await drain()
+    expect(coord.isAutoActive()).toBe(false)
+    const count = r.history.filter((m) => m.role === 'ai').length
+    await drain() // 더 돌려도 증가 없음
+    expect(r.history.filter((m) => m.role === 'ai').length).toBe(count)
+  })
+
+  it('[228] dispose가 진행 중 귓속말 abort(타임아웃 전 종료)', async () => {
+    const r = room([human, participant({ id: 'a1', name: '감자', kind: 'ai', seat: 1 })])
+    const coord = new Coordinator(r, makeDriver(() => ({ script: ['x', 'y'], perToken: 60_000 })), spyHooks(), { whisperTimeoutMs: 999_999 })
+    const p = coord.whisper('a1', '안끝남')
+    await flushMicro()
+    coord.dispose() // 진행 중 귓속말 즉시 중단
+    await expect(p).resolves.toBeUndefined()
+  })
 })

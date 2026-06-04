@@ -34,6 +34,8 @@ export class Coordinator {
   private pending: Message | null = null // [H-1] 대기 사람 입력(최신만). 인터럽트 = 이 슬롯 교체
   private busy = false // [H-1] 턴 루프 single-flight 가드
   private whispers = new Map<ParticipantId, Whisper>() // [H2] 휘발 — RoomSession과 분리([223] §2)
+  private activeWhispers = new Set<AbortController>() // [228 C2] 진행 중 귓속말 추적(dispose가 일괄 abort)
+  private disposed = false // [228 C2/M4] 세션 teardown 플래그 — true면 모든 진입점·루프 차단(재진입 누수 방지, R6)
   private readonly whisperTimeoutMs: number
   private readonly willSpeak: (p: Participant) => boolean | Promise<boolean>
   private readonly contextLimit?: ContextLimit
@@ -94,6 +96,7 @@ export class Coordinator {
 
   // ===== 진입점(유일) =====
   startTurn(humanMsg: Message) {
+    if (this.disposed) return // [228] teardown 후 진입 무시(orphaned 루프 방지)
     humanMsg.status = 'done' // [C-1]
     this.pending = humanMsg
     if (this.autoMode) this.setAuto(false) // [C3] 사람 입력 → 자동 일시정지(사람 우선)
@@ -107,6 +110,7 @@ export class Coordinator {
 
   // [C3] 자동 대화 시작/정지 — 사람 없이 AI끼리 라운드로빈으로 진행.
   startAutoMode() {
+    if (this.disposed) return // [228] teardown 후 무시
     this.autoLeft = this.autoMaxTurns
     this.setAuto(true)
     if (!this.busy) void this.runLoop()
@@ -128,8 +132,8 @@ export class Coordinator {
   private async runLoop() {
     this.busy = true
     try {
-      // 사람 입력(우선) 또는 자동 모드가 남아 있는 동안 턴을 돈다.
-      while (this.pending || (this.autoMode && this.autoLeft > 0)) {
+      // 사람 입력(우선) 또는 자동 모드가 남아 있는 동안 턴을 돈다. [228] disposed면 즉시 탈출.
+      while (!this.disposed && (this.pending || (this.autoMode && this.autoLeft > 0))) {
         if (this.pending) {
           const humanMsg = this.pending
           this.pending = null
@@ -170,7 +174,7 @@ export class Coordinator {
 
     // 추첨 순서대로 직렬 발언(자원 독점 → 저사양 안정). 사람 인터럽트(D3)면 즉시 중단(다음 턴으로).
     for (const p of order) {
-      if (this.pending) break // [D3] 대기 사람 입력 → 루프 탈출, 다음 턴
+      if (this.disposed || this.pending) break // [D3]/[228] 대기 입력·teardown → 루프 탈출, 다음 턴
       const ac = new AbortController()
       this.current = ac
       await this.speakOne(p.id, ac.signal)
@@ -281,6 +285,7 @@ export class Coordinator {
 
   // [H2] 귓속말 — floor 밖. 휘발 Map. 자체 타임아웃. [H-3] 컨텍스트는 whisperContext가 SpeakContext로.
   async whisper(target: ParticipantId, text: string) {
+    if (this.disposed) return // [228] teardown 후 무시
     if (!this.room.participants.some((p) => p.id === target)) {
       throw new Error(`whisper: 알 수 없는 대상 ${target}`) // [M2] 상태 변경·emit 전 검증
     }
@@ -291,6 +296,7 @@ export class Coordinator {
     w.messages.push(reply)
     this.hooks.onWhisper(target, w) // [C1] 휘발 UI emit — 공개 publish 아님([222] §7)
     const ac = new AbortController()
+    this.activeWhispers.add(ac) // [228] dispose가 일괄 abort할 수 있게 추적
     const to = setTimeout(() => ac.abort(), this.whisperTimeoutMs)
     try {
       for await (const tok of this.driver.speak(whisperContext(target, w, this.room), ac.signal)) {
@@ -301,6 +307,22 @@ export class Coordinator {
       /* abort/error: 부분 보존, 공개 로그·MD·스냅샷 미기록([223] §2) */
     } finally {
       clearTimeout(to)
+      this.activeWhispers.delete(ac)
     }
+  }
+
+  // [228 C2/M4] 세션 teardown — 로비↔방 전환·재진입마다 이전 세션에 호출.
+  // 진행 중 모든 비동기(발언·interruptibleDelay·귓속말) 중단 + 자동 모드 종료.
+  // disposed 플래그로 이후 어떤 진입점(startTurn/startAutoMode/whisper)·루프도 차단 → orphaned stream/타이머 0(R6).
+  // [중요] hooks는 호출하지 않는다(UI unmount 중일 수 있음) — store 리스너 해제는 호출 측(App) 책임.
+  dispose() {
+    this.disposed = true
+    this.current?.abort() // 진행 중 발언 또는 interruptibleDelay 즉시 깨움
+    this.current = null
+    this.pending = null
+    this.autoMode = false
+    this.autoLeft = 0
+    for (const ac of this.activeWhispers) ac.abort() // 진행 중 귓속말 중단(각 setTimeout은 자체 finally에서 정리)
+    this.activeWhispers.clear()
   }
 }

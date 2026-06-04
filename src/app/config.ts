@@ -5,6 +5,19 @@ import type { MockDriverConfig } from '../drivers/MockDriver'
 import type { Locale } from '../i18n'
 import { t } from '../i18n'
 
+// [228 §4.3] 로비에서 런타임 선택하는 방 구성 — AppConfig(정적 플래그)와 별개. 사용자가 입장 시 만들고 localStorage에 영속.
+export interface AiSlot {
+  id: string // 안정 슬롯 id(seat·모델·이름 교체에도 유지). buildSession이 participants/driver map 키로 사용
+  name: string // 표시 이름(defaultNameForModel 기본 + 사용자 편집 보존)
+  model: string // Ollama 모델 태그(/api/tags의 name)
+  think?: boolean // [228 M3] 사고모드 tri-state: undefined=미전송(비-thinking 보호) / true·false=명시 전송
+}
+export interface RoomConfig {
+  v: 1 // [228 H3] 스키마 버전 — 영속 호환성(불일치 시 기본값 폴백)
+  ais: AiSlot[]
+  humanName?: string // 사람 표시 이름(미지정 시 i18n 'participant.me')
+}
+
 export interface AppConfig {
   locale: Locale
   typingMs: number // 토큰 간격(드라이버 perTokenMs로 주입, [222] §4.1). 0 = 즉시(접근성)
@@ -38,7 +51,7 @@ export const config: AppConfig = {
     byParticipant: {
       exaone: { model: 'exaone3.5:7.8b' }, // LG
       phi4mini: { model: 'phi4-mini:latest' }, // Microsoft ~3.8B(경량 → 드랍↓)
-      qwen3: { model: 'qwen3:8b', think: false }, // Alibaba · 사고모드 끔(라이브 속도)
+      qwen3: { model: 'qwen3.5:4b', think: false }, // Alibaba Qwen3.5 4B(최신 경량) · 사고모드 끔(라이브 속도)
     },
   },
 }
@@ -83,4 +96,18 @@ export function demoMockConfig(typingMs: number): MockDriverConfig {
       ],
     },
   }
+}
+
+// [228 §4.6] 모델 태그 → 기본 봇 이름(단일 규칙: org 제거 → 태그(`:` 앞) → 첫 글자 Title-case).
+// 예: exaone3.5:7.8b→Exaone3.5 · qwen3.5:4b→Qwen3.5 · phi4-mini:latest→Phi4-mini · ingu627/exaone4.0:latest→Exaone4.0.
+// 사용자가 칸을 비웠거나 자동값과 같을 때만 Lobby가 이 값으로 동기화(사용자 입력은 보존).
+export function defaultNameForModel(model: string): string {
+  const repo = model.split('/').pop() ?? model // org/repo → repo
+  const tag = repo.split(':')[0] || repo // 이름:버전 → 이름
+  return tag.charAt(0).toUpperCase() + tag.slice(1)
+}
+
+// [228 §4.9] 사고모드(thinking/reasoning) 모델 추정 — 패턴 매칭. 추정값은 Lobby tri-state 토글 기본값일 뿐(사용자가 보정).
+export function guessThinking(model: string): boolean {
+  return /qwen3|exaone.*4|deepseek-r1|think|reason/i.test(model)
 }

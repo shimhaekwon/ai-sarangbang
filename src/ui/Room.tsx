@@ -16,9 +16,10 @@ export interface RoomProps {
   room: RoomSession
   store: RoomStore
   coord: Coordinator
+  onLeave: () => void // [228 §8] 헤더 [설정] → App이 dispose 후 로비로
 }
 
-export function Room({ room, store, coord }: RoomProps) {
+export function Room({ room, store, coord, onLeave }: RoomProps) {
   const view = useRoomView(store)
   const participants = room.participants
   const colorMap = useMemo(() => buildColorMap(participants), [participants])
@@ -48,6 +49,9 @@ export function Room({ room, store, coord }: RoomProps) {
           {view.autoActive ? t('auto.stop') : t('auto.start')}
         </button>
         <SaveBar room={room} />
+        <button className="leave-btn" onClick={onLeave}>
+          {t('room.settings')}
+        </button>
       </div>
       <div className="body">
         <div className="main-col">

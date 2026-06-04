@@ -28,6 +28,26 @@ const ko: Dict = {
   'auto.start': '자동 진행',
   'auto.stop': '멈춤',
   'participant.me': '나',
+  // [228] 로비(진입 모델 선택)
+  'lobby.title': '■ 사랑방 — 입장 ■',
+  'lobby.subtitle': '로컬 AI를 골라 대화를 시작하세요',
+  'lobby.loading': '모델 목록 불러오는 중…',
+  'lobby.error': 'Ollama에 연결할 수 없습니다. 실행 중인지 확인하세요.',
+  'lobby.retry': '다시 시도',
+  'lobby.demo': 'Mock 데모로 시작',
+  'lobby.empty': '설치된 모델이 없습니다',
+  'lobby.emptyHint': '터미널에서 모델을 받은 뒤(ollama pull) 다시 시도하세요',
+  'lobby.missing': '저장된 모델이 목록에 없습니다: {models}',
+  'lobby.human': '내 이름',
+  'lobby.model': '모델',
+  'lobby.name': '이름',
+  'lobby.think': '사고',
+  'lobby.thinkHint': '사고모드(thinking) 모델 — 켜면 추론 과정을 거칩니다(느려질 수 있음)',
+  'lobby.remove': '삭제',
+  'lobby.addAi': '+ AI 추가',
+  'lobby.enter': '입장',
+  'lobby.gate': 'AI를 1명 이상 추가하세요',
+  'room.settings': '⚙ 설정',
 }
 
 const en: Dict = {
@@ -55,6 +75,26 @@ const en: Dict = {
   'auto.start': 'Auto',
   'auto.stop': 'Stop',
   'participant.me': 'Me',
+  // [228] lobby (entry model selection)
+  'lobby.title': '■ Sarangbang — Enter ■',
+  'lobby.subtitle': 'Pick local AIs and start chatting',
+  'lobby.loading': 'Loading model list…',
+  'lobby.error': 'Cannot reach Ollama. Make sure it is running.',
+  'lobby.retry': 'Retry',
+  'lobby.demo': 'Start Mock demo',
+  'lobby.empty': 'No models installed',
+  'lobby.emptyHint': 'Pull a model (ollama pull) then retry',
+  'lobby.missing': 'Saved models not in list: {models}',
+  'lobby.human': 'My name',
+  'lobby.model': 'Model',
+  'lobby.name': 'Name',
+  'lobby.think': 'Think',
+  'lobby.thinkHint': 'Thinking model — enabling adds a reasoning pass (may be slower)',
+  'lobby.remove': 'Remove',
+  'lobby.addAi': '+ Add AI',
+  'lobby.enter': 'Enter',
+  'lobby.gate': 'Add at least one AI',
+  'room.settings': '⚙ Settings',
 }
 
 const dicts: Record<Locale, Dict> = { ko, en }
