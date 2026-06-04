@@ -238,7 +238,7 @@ describe('Coordinator — 랜덤 순서 직렬 floor([227])', () => {
   })
 
   // ===== 자동 모드 ([D-D] 랜덤 순서·직전 화자 연속 회피) =====
-  it('[D-D] 자동 모드: 랜덤 순서 + 직전 화자 연속 회피, 최대 N턴 후 자동 정지', async () => {
+  it('[D-D] 자동 모드: 바퀴 로테이션(전원 1회씩·순서 랜덤), 최대 N턴 후 자동 정지', async () => {
     const r = room([human, ai('a1', 1), ai('a2', 2), ai('a3', 3)])
     const hooks = spyHooks()
     const coord = new Coordinator(r, makeDriver(() => ({ script: ['응답'], perToken: 5 })), hooks, {
@@ -250,8 +250,9 @@ describe('Coordinator — 랜덤 순서 직렬 floor([227])', () => {
     await drain()
     const seq = r.history.filter((m) => m.role === 'ai').map((m) => m.by)
     expect(seq).toHaveLength(8) // 8턴
-    for (let i = 1; i < seq.length; i++) expect(seq[i]).not.toBe(seq[i - 1]) // [D-D] 직전 화자 연속 회피
-    expect(new Set(seq).size).toBeGreaterThanOrEqual(2) // 한 명 독점 아님(추첨 분산)
+    for (let i = 1; i < seq.length; i++) expect(seq[i]).not.toBe(seq[i - 1]) // [D-D] 연속 회피(바퀴 경계 포함)
+    // [D-D] 바퀴 로테이션: 매 3발언(=AI 수)이 전원 1회씩 → 라운드가 정확히 N발언으로 균등
+    for (let i = 0; i + 3 <= seq.length; i += 3) expect(new Set(seq.slice(i, i + 3)).size).toBe(3)
     expect(coord.isAutoActive()).toBe(false)
     expect(r.status).toBe('idle')
     expect(hooks.onAuto).toHaveBeenCalledWith(true)

@@ -81,4 +81,18 @@ describe('computeRoundMarks — 라운드 경계(전원 한 바퀴)', () => {
     expect(marks.has(x.id)).toBe(false) // 자동 미완 → 마크 없음(리셋)
     expect(marks.get(h3.id)).toBe(1) // 사람 턴 = 라운드 1
   })
+
+  it('[회귀] 라이브 로그 자동 시퀀스 — 전원 한 바퀴마다 정확히 라운드(런타임 비교 기준)', () => {
+    // 2026-06-05 라이브 자동 발언 순서(사람턴=라운드1 제외). E=Exaone P=Phi4 Q=Qwen
+    const auto = ['E', 'P', 'E', 'P', 'E', 'P', 'Q', 'P', 'E', 'Q', 'E', 'Q', 'P', 'E', 'Q', 'E', 'Q', 'P', 'E', 'Q']
+    const hist = [
+      msg(1, 'h', 'human'), msg(1, 'Q', 'ai'), msg(1, 'E', 'ai'), msg(1, 'P', 'ai'), // 라운드1 사람턴
+      ...auto.map((by, i) => msg(2 + i, by, 'ai')),
+    ]
+    const marks = computeRoundMarks(hist, 3)
+    const rounds = hist.filter((m) => marks.has(m.id)).map((m) => ({ turnNo: m.turnNo, r: marks.get(m.id) }))
+    // 로직상 라운드는 5개(1=사람턴, 2~5=전원 한 바퀴마다). 라이브 화면엔 라운드4가 turnNo14 직후에 떠야 했음.
+    expect(rounds.map((x) => x.r)).toEqual([1, 2, 3, 4, 5])
+    expect(rounds[3].turnNo).toBe(14) // 라운드4 = 13번째 자동(Phi4) 직후 — 라이브에서 누락된 그 위치
+  })
 })

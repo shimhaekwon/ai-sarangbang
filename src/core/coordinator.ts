@@ -52,7 +52,8 @@ export class Coordinator {
   // [C3] 자동 대화 모드
   private autoMode = false
   private autoLeft = 0 // 남은 자동 턴(0이면 종료)
-  private lastAutoSpeaker: ParticipantId | null = null // [D-D] 자동턴 직전 화자(연속 회피용)
+  private lastAutoSpeaker: ParticipantId | null = null // [D-D] 자동턴 직전 화자(바퀴 경계 연속 회피용)
+  private autoRoundSpoken = new Set<ParticipantId>() // [D-D] 이번 자동 바퀴에 발언한 AI(전원 차면 새 바퀴 = 라운드 균등)
   private readonly autoDelayMs: number
   private readonly autoMaxTurns: number
 
@@ -109,6 +110,7 @@ export class Coordinator {
     humanMsg.status = 'done' // [C-1]
     this.pending = humanMsg
     if (this.autoMode) this.setAuto(false) // [C3] 사람 입력 → 자동 일시정지(사람 우선)
+    this.autoRoundSpoken.clear() // [D-D] 사람 입력 = 자동 바퀴 리셋(라운드 경계가 computeRoundMarks와 정합)
     if (this.busy) this.current?.abort() // [D3] 진행 중(발언/지연) 즉시 중단. 루프가 pending을 다음 턴으로
     else void this.runLoop()
   }
@@ -225,10 +227,17 @@ export class Coordinator {
     return a
   }
 
-  // [D-D] 자동 턴 화자 추첨 — 직전 화자 제외 후 rng로 1명(연속 회피). AI 1명뿐이면 제외 불가 → 그대로.
+  // [D-D] 자동 턴 화자 추첨 — 바퀴 로테이션: 이번 바퀴 미발언자 중 rng로 1명(전원 1회씩 = 라운드 균등).
+  // 바퀴가 차면 리셋 + 경계 연속 회피(새 바퀴 첫 화자 ≠ 직전 화자). AI 1명뿐이면 불가피하게 반복.
   private pickAutoSpeaker(ais: Participant[]): Participant {
-    const pool = ais.length > 1 ? ais.filter((p) => p.id !== this.lastAutoSpeaker) : ais
-    return pool[Math.floor(this.rng() * pool.length)] // rng: () => number ∈ [0,1)
+    let pool = ais.filter((p) => !this.autoRoundSpoken.has(p.id))
+    if (pool.length === 0) {
+      this.autoRoundSpoken.clear() // 바퀴 완료 → 새 바퀴
+      pool = ais.length > 1 ? ais.filter((p) => p.id !== this.lastAutoSpeaker) : ais
+    }
+    const pick = pool[Math.floor(this.rng() * pool.length)] // rng: () => number ∈ [0,1)
+    this.autoRoundSpoken.add(pick.id)
+    return pick
   }
 
   // [227][H1] 직렬 발언 1건 — floor 연출(streamWinner 계승) + streamMessage 재사용.
