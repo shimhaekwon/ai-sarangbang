@@ -25,6 +25,15 @@ export interface CoordinatorOptions {
   rng?: () => number // [227] 셔플 난수원([0,1)). 테스트 시드 주입. 기본은 전역 Math.random 함수 참조(호출 아님 → core-purity 가드 통과)
 }
 
+// [개선] 자동 대화 턴 수 허용 범위 — Room 입력칸·coordinator의 단일 소스(UI 우회 입력/소수/NaN도 여기서 방어).
+export const AUTO_TURNS_MIN = 1
+export const AUTO_TURNS_MAX = 99
+export function clampAutoTurns(n: number): number {
+  const v = Math.floor(n)
+  if (!Number.isFinite(v)) return AUTO_TURNS_MIN
+  return Math.min(AUTO_TURNS_MAX, Math.max(AUTO_TURNS_MIN, v))
+}
+
 const DEFAULT_WHISPER_TIMEOUT_MS = 30_000
 
 export class Coordinator {
@@ -43,7 +52,7 @@ export class Coordinator {
   // [C3] 자동 대화 모드
   private autoMode = false
   private autoLeft = 0 // 남은 자동 턴(0이면 종료)
-  private autoCursor = 0 // 라운드로빈 화자 인덱스
+  private lastAutoSpeaker: ParticipantId | null = null // [D-D] 자동턴 직전 화자(연속 회피용)
   private readonly autoDelayMs: number
   private readonly autoMaxTurns: number
 
@@ -108,10 +117,10 @@ export class Coordinator {
     return this.turnState.get(id) ?? 'idle'
   }
 
-  // [C3] 자동 대화 시작/정지 — 사람 없이 AI끼리 라운드로빈으로 진행.
-  startAutoMode() {
+  // [C3] 자동 대화 시작/정지 — 사람 없이 AI끼리 진행([D-D] 랜덤 순서·직전 화자 연속 회피).
+  startAutoMode(maxTurns?: number) {
     if (this.disposed) return // [228] teardown 후 무시
-    this.autoLeft = this.autoMaxTurns
+    this.autoLeft = maxTurns === undefined ? this.autoMaxTurns : clampAutoTurns(maxTurns) // [개선] 호출자(Room) 지정값 우선·범위 보정
     this.setAuto(true)
     if (!this.busy) void this.runLoop()
   }
@@ -139,7 +148,7 @@ export class Coordinator {
           this.pending = null
           await this.runTurn(humanMsg) // 사람 턴: 랜덤 순서 직렬
         } else {
-          await this.runAutoTurn() // [C3] 자동 턴: 한 AI(라운드로빈)만 발언
+          await this.runAutoTurn() // [C3] 자동 턴: 한 AI([D-D] 랜덤·연속 회피)만 발언
           this.autoLeft--
           if (this.autoMode && this.autoLeft > 0 && !this.pending) await this.interruptibleDelay(this.autoDelayMs)
         }
@@ -216,6 +225,12 @@ export class Coordinator {
     return a
   }
 
+  // [D-D] 자동 턴 화자 추첨 — 직전 화자 제외 후 rng로 1명(연속 회피). AI 1명뿐이면 제외 불가 → 그대로.
+  private pickAutoSpeaker(ais: Participant[]): Participant {
+    const pool = ais.length > 1 ? ais.filter((p) => p.id !== this.lastAutoSpeaker) : ais
+    return pool[Math.floor(this.rng() * pool.length)] // rng: () => number ∈ [0,1)
+  }
+
   // [227][H1] 직렬 발언 1건 — floor 연출(streamWinner 계승) + streamMessage 재사용.
   private async speakOne(id: ParticipantId, signal: AbortSignal): Promise<void> {
     this.room.floorHolder = id // [H-1] 직접 교체(null 경유 안 함)
@@ -224,16 +239,16 @@ export class Coordinator {
     await this.streamMessage(id, signal) // 빈응답→error("응답 없음")·abort→stopped·드라이버에러→error 내장
   }
 
-  // [C3] 자동 턴 — 한 AI(라운드로빈)만 직전 대화에 반응해 발언(사람 opener 없음).
+  // [C3] 자동 턴 — 한 AI([D-D] 랜덤 추첨·직전 화자 연속 회피)만 직전 대화에 반응해 발언(사람 opener 없음).
   private async runAutoTurn() {
     const ais = this.room.participants.filter((p) => p.kind === 'ai').sort((a, b) => a.seat - b.seat)
     if (ais.length === 0) {
       this.setAuto(false)
       return
     }
-    this.hooks.onOrder?.(new Map()) // [227][C2] 직전 사람턴 순번 배지 잔류 방지(자동턴 셔플=D-D 후속)
-    const speaker = ais[this.autoCursor % ais.length]
-    this.autoCursor++
+    this.hooks.onOrder?.(new Map()) // [227][C2] 직전 사람턴 순번 배지 잔류 방지(자동턴은 1명씩이라 순번 없음)
+    const speaker = this.pickAutoSpeaker(ais) // [D-D] 좌석순 고정 아님 — rng 추첨(직전 화자 회피)
+    this.lastAutoSpeaker = speaker.id
     this.room.turnNo++
     this.room.status = 'turn_active'
     this.notifyRoom()

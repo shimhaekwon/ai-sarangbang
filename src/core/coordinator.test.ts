@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { Coordinator, type CoordinatorHooks } from './coordinator'
+import { Coordinator, clampAutoTurns, type CoordinatorHooks } from './coordinator'
 import { assertWhisperVolatile } from './invariants'
 import { newMessageId } from './id'
 import { participant, room } from './test-helpers'
@@ -60,6 +60,11 @@ const ai = (id: string, seat: number) => participant({ id, name: id.toUpperCase(
 const aiBy = (r: ReturnType<typeof room>) => r.history.filter((m) => m.role === 'ai').map((m) => m.by)
 // [227] 셔플 rng: 0.99(≈1) → Fisher-Yates 항등(좌석순 유지) → 결정적 순서. 0 → 특정 순열로 비결정성 입증.
 const seatOrderRng = () => 0.99
+// [D-D] 자동턴 화자 추첨용 순환 시드 — 호출마다 다음 값(결정적 비좌석순·연속회피 검증)
+const cyclicRng = (seq: number[]) => {
+  let i = 0
+  return () => seq[i++ % seq.length]
+}
 
 async function flushMicro(n = 60) {
   for (let i = 0; i < n; i++) await Promise.resolve()
@@ -232,19 +237,59 @@ describe('Coordinator — 랜덤 순서 직렬 floor([227])', () => {
     await expect(p).resolves.toBeUndefined()
   })
 
-  // ===== 자동 모드 (라운드로빈 — 셔플 미적용 D-D, 유지) =====
-  it('[C3] 자동 모드: 한 AI씩 라운드로빈으로 최대 N턴 발언 후 자동 정지', async () => {
-    const r = room([human, ai('a1', 1), ai('a2', 2)])
+  // ===== 자동 모드 ([D-D] 랜덤 순서·직전 화자 연속 회피) =====
+  it('[D-D] 자동 모드: 랜덤 순서 + 직전 화자 연속 회피, 최대 N턴 후 자동 정지', async () => {
+    const r = room([human, ai('a1', 1), ai('a2', 2), ai('a3', 3)])
     const hooks = spyHooks()
-    const coord = new Coordinator(r, makeDriver(() => ({ script: ['응답'], perToken: 5 })), hooks, { autoMaxTurns: 4, autoDelayMs: 100 })
+    const coord = new Coordinator(r, makeDriver(() => ({ script: ['응답'], perToken: 5 })), hooks, {
+      autoMaxTurns: 8,
+      autoDelayMs: 100,
+      rng: cyclicRng([0.1, 0.6, 0.95, 0.4]),
+    })
     coord.startAutoMode()
     await drain()
-    const aiMsgs = r.history.filter((m) => m.role === 'ai')
-    expect(aiMsgs.map((m) => m.by)).toEqual(['a1', 'a2', 'a1', 'a2']) // 라운드로빈 · 4턴
+    const seq = r.history.filter((m) => m.role === 'ai').map((m) => m.by)
+    expect(seq).toHaveLength(8) // 8턴
+    for (let i = 1; i < seq.length; i++) expect(seq[i]).not.toBe(seq[i - 1]) // [D-D] 직전 화자 연속 회피
+    expect(new Set(seq).size).toBeGreaterThanOrEqual(2) // 한 명 독점 아님(추첨 분산)
     expect(coord.isAutoActive()).toBe(false)
     expect(r.status).toBe('idle')
     expect(hooks.onAuto).toHaveBeenCalledWith(true)
     expect(hooks.onAuto).toHaveBeenLastCalledWith(false)
+  })
+
+  it('[D-D] 자동 모드: 좌석순 라운드로빈이 아님(rng로 첫 화자 결정)', async () => {
+    const r = room([human, ai('a1', 1), ai('a2', 2), ai('a3', 3)])
+    // rng≈0.99 → 첫 턴 후보 3명 중 idx=floor(0.99*3)=2 → a3로 시작(좌석순이면 a1)
+    const coord = new Coordinator(r, makeDriver(() => ({ script: ['응답'], perToken: 5 })), spyHooks(), {
+      autoMaxTurns: 4,
+      autoDelayMs: 100,
+      rng: () => 0.99,
+    })
+    coord.startAutoMode()
+    await drain()
+    const seq = r.history.filter((m) => m.role === 'ai').map((m) => m.by)
+    expect(seq[0]).toBe('a3') // 좌석순(a1 시작)이 아니라 추첨 결과
+    for (let i = 1; i < seq.length; i++) expect(seq[i]).not.toBe(seq[i - 1]) // 연속 회피
+  })
+
+  it('[개선] startAutoMode(n): 호출자 지정 n턴 후 정지(생성자 기본 무시)', async () => {
+    const r = room([human, ai('a1', 1), ai('a2', 2)])
+    const coord = new Coordinator(r, makeDriver(() => ({ script: ['응답'], perToken: 5 })), spyHooks(), { autoMaxTurns: 9, autoDelayMs: 100 })
+    coord.startAutoMode(3) // 생성자 기본(9) 대신 3턴
+    await drain()
+    expect(r.history.filter((m) => m.role === 'ai').length).toBe(3)
+    expect(coord.isAutoActive()).toBe(false)
+  })
+
+  it('[개선] clampAutoTurns: 1~99·정수·NaN 보정', () => {
+    expect(clampAutoTurns(0)).toBe(1)
+    expect(clampAutoTurns(1)).toBe(1)
+    expect(clampAutoTurns(9)).toBe(9)
+    expect(clampAutoTurns(99)).toBe(99)
+    expect(clampAutoTurns(100)).toBe(99)
+    expect(clampAutoTurns(3.7)).toBe(3)
+    expect(clampAutoTurns(NaN)).toBe(1)
   })
 
   it('[C3] stopAutoMode로 즉시 정지(진행 중 발언 중단)', async () => {

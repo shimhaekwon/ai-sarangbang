@@ -38,8 +38,13 @@ body {
 .bar .dot { width: 10px; height: 10px; border-radius: 50%; }
 .bar .t { color: #cfd8ff; }
 .bar .savebar { margin-left: 8px; }
+.auto-group { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; }
+.auto-turns {
+  width: 3.4em; font-family: var(--mono); font-size: 12px; text-align: center;
+  background: #0d1235; color: var(--ink); border: 1px solid #2c3c8e; border-radius: 5px; padding: 4px;
+}
+.auto-turns:disabled { opacity: 0.5; cursor: not-allowed; }
 .auto-btn {
-  margin-left: auto;
   font-family: var(--mono); background: #16205a; color: var(--ink);
   border: 1px solid #2c3c8e; padding: 5px 10px; border-radius: 5px; cursor: pointer; font-size: 12px;
 }
@@ -60,6 +65,7 @@ body {
 .msg { white-space: pre-wrap; word-break: break-word; }
 .msg .who { font-weight: bold; }
 .sys { color: var(--dim); }
+.msg.round-end { text-align: center; font-size: 12px; opacity: .85; margin: 1px 0; } /* [D-D] 라운드 종료 구분선 */
 .stopped { color: var(--stopped); }
 .tagx { font-size: 11px; border: 1px solid #5a2730; border-radius: 8px; padding: 0 6px; margin-left: 6px; }
 .cursor {

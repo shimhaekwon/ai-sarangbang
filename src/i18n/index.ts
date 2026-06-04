@@ -7,6 +7,7 @@ const ko: Dict = {
   'app.title': '■ 사랑방 ■',
   'sys.enter': '── 사랑방에 입장했습니다 ──',
   'sys.join': '* {names} 님이 입장하셨습니다',
+  'sys.roundEnd': '── 라운드 {n} 종료 ──',
   'status.queued': '대기',
   'status.speaking': '발언중',
   'status.done': '완료',
@@ -27,6 +28,8 @@ const ko: Dict = {
   'save.note': '귓속말 제외',
   'auto.start': '자동 진행',
   'auto.stop': '멈춤',
+  'auto.turns': '턴 수',
+  'auto.turnsHint': '자동 대화 최대 턴 (1~99)',
   'participant.me': '나',
   // [228] 로비(진입 모델 선택)
   'lobby.title': '■ 사랑방 — 입장 ■',
@@ -54,6 +57,7 @@ const en: Dict = {
   'app.title': '■ Sarangbang ■',
   'sys.enter': '── You have entered the Sarangbang ──',
   'sys.join': '* {names} joined',
+  'sys.roundEnd': '── Round {n} ended ──',
   'status.queued': 'queued',
   'status.speaking': 'speaking',
   'status.done': 'done',
@@ -74,6 +78,8 @@ const en: Dict = {
   'save.note': 'whisper excluded',
   'auto.start': 'Auto',
   'auto.stop': 'Stop',
+  'auto.turns': 'Turns',
+  'auto.turnsHint': 'Max auto-chat turns (1-99)',
   'participant.me': 'Me',
   // [228] lobby (entry model selection)
   'lobby.title': '■ Sarangbang — Enter ■',

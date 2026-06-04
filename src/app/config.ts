@@ -41,7 +41,7 @@ export const config: AppConfig = {
   whisperTimeoutMs: 30_000,
   // [M4] 최근 8개 발언 + 총 1500자까지만 모델에 전달(그 이상은 오래된 것부터 버림). 약한 HW + 3모델 동시에 맞춰 작게.
   contextWindow: { maxMessages: 8, maxChars: 1500 },
-  auto: { delayMs: 3500, maxTurns: 8 }, // [C3] 나 없이 AI끼리: 3.5초 간격, 최대 8턴 후 자동 정지
+  auto: { delayMs: 3500, maxTurns: 9 }, // [C3] 나 없이 AI끼리: 3.5초 간격, 기본 9턴(Room 입력칸에서 1~99 조절) 후 자동 정지
   driver: 'ollama', // 'mock' = Ollama 없이 데모 / 'ollama' = 로컬 실 AI(Ollama 실행 + 모델 pull 필요)
   ollama: {
     model: 'exaone3.5:7.8b', // byParticipant 미지정 참가자의 폴백
