@@ -29,4 +29,11 @@ describe('core 순수성([224] §1 · DoD)', () => {
       expect(readFileSync(file, 'utf8'), file).not.toMatch(/\b(document|window)\b/)
     }
   })
+
+  // [227][H3] 비결정 Math.random() 직접 호출 0(셔플은 주입 rng로 결정성). 참조(`?? Math.random`)는 허용 — 호출 형태만 차단.
+  it('Math.random() 직접 호출 미사용(rng 주입)', () => {
+    for (const file of coreSourceFiles()) {
+      expect(readFileSync(file, 'utf8'), file).not.toMatch(/Math\.random\s*\(/)
+    }
+  })
 })

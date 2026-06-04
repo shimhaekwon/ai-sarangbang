@@ -11,6 +11,7 @@ export interface RoomView {
   turnNo: number
   floorHolder: ParticipantId | null
   turnState: ReadonlyMap<ParticipantId, TurnState>
+  turnOrder: ReadonlyMap<ParticipantId, number> // [227] 이번 턴 발언 순번(1-based). 빈 Map = 비활성(배지 없음)
   whispers: ReadonlyMap<ParticipantId, Whisper>
   autoActive: boolean // [C3] 자동 대화 모드 on/off
 }
@@ -18,6 +19,7 @@ export interface RoomView {
 export interface RoomStore extends CoordinatorHooks {
   onRoom: () => void // createRoomStore가 항상 제공(CoordinatorHooks의 optional을 필수로 좁힘)
   onAuto: (active: boolean) => void // [C3] 자동 모드 통지
+  onOrder: (ranks: ReadonlyMap<ParticipantId, number>) => void // [227] 순번 배지(optional → 필수로 좁힘)
   subscribe: (listener: () => void) => () => void
   getSnapshot: () => RoomView
 }
@@ -30,6 +32,7 @@ export function createRoomStore(room: RoomSession): RoomStore {
     turnNo: room.turnNo,
     floorHolder: room.floorHolder,
     turnState: new Map(),
+    turnOrder: new Map(),
     whispers: new Map(),
     autoActive: false,
   }
@@ -50,6 +53,11 @@ export function createRoomStore(room: RoomSession): RoomStore {
     const turnState = new Map(snapshot.turnState)
     turnState.set(id, s)
     snapshot = { ...snapshot, turnState }
+    emit()
+  }
+  // [227] 발언 순번 추첨 결과(빈 Map = 클리어). 새 ref로 React 리렌더.
+  const onOrder = (ranks: ReadonlyMap<ParticipantId, number>) => {
+    snapshot = { ...snapshot, turnOrder: new Map(ranks) }
     emit()
   }
   // [C1] 휘발 — 스냅샷 복사본으로만 노출(공개 history/MD/스냅샷 미오염은 core가 보장).
@@ -77,7 +85,7 @@ export function createRoomStore(room: RoomSession): RoomStore {
   }
   const getSnapshot = () => snapshot
 
-  return { publish, onState, onWhisper, onRoom, onAuto, subscribe, getSnapshot }
+  return { publish, onState, onWhisper, onRoom, onAuto, onOrder, subscribe, getSnapshot }
 }
 
 // React 훅 — 컴포넌트가 RoomView 전체를 구독(스냅샷 ref는 emit 시에만 교체 → 안전, 무한루프 없음).

@@ -6,11 +6,11 @@ import { participant, room } from './test-helpers'
 import type { AgentDriver } from '../drivers/AgentDriver'
 import type { Message, ParticipantId } from './types'
 
-// ===== 경쟁 제어 가능한 스텁 드라이버 =====
+// ===== 제어 가능한 스텁 드라이버 =====
 interface Behavior {
   script?: string[]
   perToken?: number
-  startDelay?: number // 첫 토큰 전 지연(경쟁 승자 제어)
+  startDelay?: number // 첫 토큰 전 지연
   failAfter?: number // N토큰 후 드라이버 에러
   noToken?: boolean // 토큰 없이 종료(무응답)
 }
@@ -50,7 +50,7 @@ function makeDriver(behavior: (id: ParticipantId) => Behavior = () => ({}), call
 }
 
 function spyHooks() {
-  return { publish: vi.fn(), onState: vi.fn(), onWhisper: vi.fn(), onRoom: vi.fn(), onAuto: vi.fn() } satisfies CoordinatorHooks
+  return { publish: vi.fn(), onState: vi.fn(), onWhisper: vi.fn(), onRoom: vi.fn(), onAuto: vi.fn(), onOrder: vi.fn() } satisfies CoordinatorHooks
 }
 function humanMsg(by: ParticipantId, text: string): Message {
   return { id: newMessageId(), turnNo: 0, by, role: 'human', text, status: 'streaming', ts: 0 }
@@ -58,6 +58,8 @@ function humanMsg(by: ParticipantId, text: string): Message {
 const human = participant({ id: 'h', name: '나', kind: 'human', seat: 0 })
 const ai = (id: string, seat: number) => participant({ id, name: id.toUpperCase(), kind: 'ai', seat })
 const aiBy = (r: ReturnType<typeof room>) => r.history.filter((m) => m.role === 'ai').map((m) => m.by)
+// [227] 셔플 rng: 0.99(≈1) → Fisher-Yates 항등(좌석순 유지) → 결정적 순서. 0 → 특정 순열로 비결정성 입증.
+const seatOrderRng = () => 0.99
 
 async function flushMicro(n = 60) {
   for (let i = 0; i < n; i++) await Promise.resolve()
@@ -74,42 +76,37 @@ afterEach(() => {
   vi.useRealTimers()
 })
 
-describe('Coordinator — 속도 경쟁 floor([221] R2)', () => {
-  it('먼저 응답한 LLM이 floor 선점 — 속도순 발언(좌석순 아님)', async () => {
+describe('Coordinator — 랜덤 순서 직렬 floor([227])', () => {
+  it('추첨 순서대로 직렬 발언(rng≈1 → 좌석순 항등)', async () => {
     const r = room([human, ai('a1', 1), ai('a2', 2), ai('a3', 3)])
-    // 첫 토큰: a2(20) < a3(50) < a1(90) → seat순(a1,a2,a3)과 다른 속도순
-    const driver = makeDriver((id) => ({ startDelay: id === 'a2' ? 20 : id === 'a3' ? 50 : 90 }))
-    const coord = new Coordinator(r, driver, spyHooks())
+    const coord = new Coordinator(r, makeDriver(), spyHooks(), { rng: seatOrderRng })
     coord.startTurn(humanMsg('h', '안녕'))
     await drain()
-    expect(aiBy(r)).toEqual(['a2', 'a3', 'a1']) // 속도순
+    expect(aiBy(r)).toEqual(['a1', 'a2', 'a3']) // 셔플 항등 → collectSpeakers 좌석순
     expect(r.history.filter((m) => m.role === 'ai').every((m) => m.status === 'done')).toBe(true)
     expect(r.status).toBe('idle')
     expect(r.floorHolder).toBeNull()
   })
 
-  it('진 LLM은 재생성 — 승자 외엔 라운드마다 speak 재호출', async () => {
+  it('셔플은 rng에 따라 순서가 바뀜(비결정)', async () => {
     const r = room([human, ai('a1', 1), ai('a2', 2), ai('a3', 3)])
-    const calls = new Map<ParticipantId, number>()
-    const driver = makeDriver((id) => ({ startDelay: id === 'a2' ? 20 : id === 'a3' ? 50 : 90 }), calls)
-    const coord = new Coordinator(r, driver, spyHooks())
+    // rng=0 → Fisher-Yates: [a1,a2,a3] →(i2,j0)[a3,a2,a1] →(i1,j0)[a2,a3,a1]
+    const coord = new Coordinator(r, makeDriver(), spyHooks(), { rng: () => 0 })
     coord.startTurn(humanMsg('h', '안녕'))
     await drain()
-    expect(calls.get('a2')).toBe(1) // 1R 승
-    expect(calls.get('a3')).toBe(2) // 1R 패 + 2R 승
-    expect(calls.get('a1')).toBe(3) // 1R·2R 패 + 3R 승
+    expect(aiBy(r)).toEqual(['a2', 'a3', 'a1']) // 좌석순과 다른 추첨 순열
   })
 
   it('R1: 각 AI 정확히 1회 발언', async () => {
     const r = room([human, ai('a1', 1), ai('a2', 2)])
-    const coord = new Coordinator(r, makeDriver((id) => ({ startDelay: id === 'a1' ? 10 : 30 })), spyHooks())
+    const coord = new Coordinator(r, makeDriver(), spyHooks(), { rng: seatOrderRng })
     coord.startTurn(humanMsg('h', '안녕'))
     await drain()
     expect(r.history.filter((m) => m.by === 'a1')).toHaveLength(1)
     expect(r.history.filter((m) => m.by === 'a2')).toHaveLength(1)
   })
 
-  it('floor 직렬: 한 번에 한 메시지만 streaming(동시 출력 0)', async () => {
+  it('직렬: 한 번에 한 메시지만 streaming(동시 출력 0)', async () => {
     const r = room([human, ai('a1', 1), ai('a2', 2)])
     let maxStreaming = 0
     const hooks: CoordinatorHooks = {
@@ -118,18 +115,18 @@ describe('Coordinator — 속도 경쟁 floor([221] R2)', () => {
         maxStreaming = Math.max(maxStreaming, r.history.filter((m) => m.status === 'streaming').length)
       },
     }
-    const coord = new Coordinator(r, makeDriver((id) => ({ startDelay: id === 'a1' ? 10 : 30 })), hooks)
+    const coord = new Coordinator(r, makeDriver(), hooks, { rng: seatOrderRng })
     coord.startTurn(humanMsg('h', '안녕'))
     await drain()
-    expect(maxStreaming).toBeLessThanOrEqual(1) // 출력(publish)은 항상 ≤1개 streaming(경쟁은 생성만 동시)
+    expect(maxStreaming).toBeLessThanOrEqual(1)
   })
 
   it('바지인(D3): 발언 중 startTurn → 현재 발언 stopped 후 새 턴', async () => {
     const r = room([human, ai('a1', 1)])
-    const driver = makeDriver(() => ({ startDelay: 10, perToken: 50, script: ['가', '나', '다', '라', '마'] }))
-    const coord = new Coordinator(r, driver, spyHooks())
+    const driver = makeDriver(() => ({ perToken: 50, script: ['가', '나', '다', '라', '마'] }))
+    const coord = new Coordinator(r, driver, spyHooks(), { rng: seatOrderRng })
     coord.startTurn(humanMsg('h', '첫'))
-    await vi.advanceTimersByTimeAsync(80) // a1 선점 + 일부 토큰
+    await vi.advanceTimersByTimeAsync(60) // a1 발언 시작 + 일부 토큰
     await flushMicro()
     const a1msg = r.history.find((m) => m.by === 'a1' && m.turnNo === 1)
     expect(a1msg?.status).toBe('streaming')
@@ -140,14 +137,14 @@ describe('Coordinator — 속도 경쟁 floor([221] R2)', () => {
     expect(r.status).toBe('idle')
   })
 
-  it('무응답/에러 LLM은 (응답 없음) 표식(조용한 드랍 아님), 나머지는 발언', async () => {
+  it('무응답 LLM은 (응답 없음) 표식(직렬 보존, H2), 나머지는 발언', async () => {
     const r = room([human, ai('a1', 1), ai('a2', 2)])
-    const driver = makeDriver((id) => (id === 'a1' ? { noToken: true } : { startDelay: 20 }))
-    const coord = new Coordinator(r, driver, spyHooks())
+    const driver = makeDriver((id) => (id === 'a1' ? { noToken: true } : {}))
+    const coord = new Coordinator(r, driver, spyHooks(), { rng: seatOrderRng })
     coord.startTurn(humanMsg('h', '안녕'))
     await drain()
     const a1msg = r.history.find((m) => m.by === 'a1')
-    expect(a1msg?.status).toBe('error') // 무응답 → (응답 없음) 표식
+    expect(a1msg?.status).toBe('error') // 무응답 → (응답 없음)
     expect(a1msg?.text).toBe('') // 빈 텍스트(토큰 0)
     expect(coord.getTurnState('a1')).toBe('stopped')
     expect(r.history.find((m) => m.by === 'a2')?.status).toBe('done')
@@ -156,7 +153,7 @@ describe('Coordinator — 속도 경쟁 floor([221] R2)', () => {
 
   it('single-flight: 연속 동기 startTurn → 중첩 없이 pending 최신만', async () => {
     const r = room([human, ai('a1', 1)])
-    const coord = new Coordinator(r, makeDriver(() => ({ startDelay: 10 })), spyHooks())
+    const coord = new Coordinator(r, makeDriver(), spyHooks(), { rng: seatOrderRng })
     coord.startTurn(humanMsg('h', '첫'))
     coord.startTurn(humanMsg('h', '둘'))
     coord.startTurn(humanMsg('h', '셋'))
@@ -166,9 +163,9 @@ describe('Coordinator — 속도 경쟁 floor([221] R2)', () => {
     expect(r.status).toBe('idle')
   })
 
-  it('willSpeak=false인 AI는 경쟁 미참여', async () => {
+  it('willSpeak=false인 AI는 발언 미참여', async () => {
     const r = room([human, ai('a1', 1), ai('a2', 2)])
-    const coord = new Coordinator(r, makeDriver(() => ({ startDelay: 10 })), spyHooks(), { willSpeak: (p) => p.id !== 'a2' })
+    const coord = new Coordinator(r, makeDriver(), spyHooks(), { willSpeak: (p) => p.id !== 'a2', rng: seatOrderRng })
     coord.startTurn(humanMsg('h', '안녕'))
     await drain()
     expect(r.history.find((m) => m.by === 'a1')).toBeTruthy()
@@ -177,7 +174,8 @@ describe('Coordinator — 속도 경쟁 floor([221] R2)', () => {
 
   it('[C1] willSpeak throw해도 방 wedge 안 됨', async () => {
     const r = room([human, ai('a1', 1), ai('a2', 2)])
-    const coord = new Coordinator(r, makeDriver(() => ({ startDelay: 10 })), spyHooks(), {
+    const coord = new Coordinator(r, makeDriver(), spyHooks(), {
+      rng: seatOrderRng,
       willSpeak: (p) => {
         if (p.id === 'a1') throw new Error('hook')
         return true
@@ -190,6 +188,21 @@ describe('Coordinator — 속도 경쟁 floor([221] R2)', () => {
     expect(r.status).toBe('idle')
   })
 
+  it('[227] 순번 onOrder: 추첨 시 emit · 턴 종료 시 클리어', async () => {
+    const r = room([human, ai('a1', 1), ai('a2', 2)])
+    const hooks = spyHooks()
+    const coord = new Coordinator(r, makeDriver(), hooks, { rng: seatOrderRng })
+    coord.startTurn(humanMsg('h', '안녕'))
+    await drain()
+    const orderCalls = hooks.onOrder.mock.calls.map((c) => c[0] as ReadonlyMap<string, number>)
+    const emitted = orderCalls.find((m) => m.size === 2)
+    expect(emitted).toBeTruthy()
+    expect(emitted!.get('a1')).toBe(1) // 좌석순(rng≈1) → a1=1, a2=2
+    expect(emitted!.get('a2')).toBe(2)
+    expect(orderCalls.at(-1)!.size).toBe(0) // 마지막 = 배지 클리어
+  })
+
+  // ===== whisper (휘발 — floor 무관, 유지) =====
   it('whisper 휘발(C1·R4): onWhisper emit · 공개 history 0오염', async () => {
     const r = room([human, participant({ id: 'a1', name: '감자', kind: 'ai', seat: 1 })])
     const hooks = spyHooks()
@@ -219,6 +232,7 @@ describe('Coordinator — 속도 경쟁 floor([221] R2)', () => {
     await expect(p).resolves.toBeUndefined()
   })
 
+  // ===== 자동 모드 (라운드로빈 — 셔플 미적용 D-D, 유지) =====
   it('[C3] 자동 모드: 한 AI씩 라운드로빈으로 최대 N턴 발언 후 자동 정지', async () => {
     const r = room([human, ai('a1', 1), ai('a2', 2)])
     const hooks = spyHooks()
@@ -227,36 +241,36 @@ describe('Coordinator — 속도 경쟁 floor([221] R2)', () => {
     await drain()
     const aiMsgs = r.history.filter((m) => m.role === 'ai')
     expect(aiMsgs.map((m) => m.by)).toEqual(['a1', 'a2', 'a1', 'a2']) // 라운드로빈 · 4턴
-    expect(coord.isAutoActive()).toBe(false) // 최대 턴 후 자동 정지
+    expect(coord.isAutoActive()).toBe(false)
     expect(r.status).toBe('idle')
-    expect(hooks.onAuto).toHaveBeenCalledWith(true) // 시작 통지
-    expect(hooks.onAuto).toHaveBeenLastCalledWith(false) // 정지 통지
+    expect(hooks.onAuto).toHaveBeenCalledWith(true)
+    expect(hooks.onAuto).toHaveBeenLastCalledWith(false)
   })
 
   it('[C3] stopAutoMode로 즉시 정지(진행 중 발언 중단)', async () => {
     const r = room([human, ai('a1', 1)])
     const coord = new Coordinator(r, makeDriver(() => ({ script: ['가', '나', '다'], perToken: 50 })), spyHooks(), { autoMaxTurns: 10, autoDelayMs: 100 })
     coord.startAutoMode()
-    await vi.advanceTimersByTimeAsync(60) // a1 발언 시작
+    await vi.advanceTimersByTimeAsync(60)
     await flushMicro()
     expect(coord.isAutoActive()).toBe(true)
     coord.stopAutoMode()
     await drain()
     expect(coord.isAutoActive()).toBe(false)
     expect(r.status).toBe('idle')
-    expect(r.history.filter((m) => m.role === 'ai').length).toBeLessThan(10) // 폭주 안 함
+    expect(r.history.filter((m) => m.role === 'ai').length).toBeLessThan(10)
   })
 
   it('[C3] 사람 입력 시 자동 정지(사람 우선) + 사람 턴 처리', async () => {
     const r = room([human, ai('a1', 1)])
-    const coord = new Coordinator(r, makeDriver(() => ({ script: ['오토'], perToken: 5 })), spyHooks(), { autoMaxTurns: 10, autoDelayMs: 1000 })
+    const coord = new Coordinator(r, makeDriver(() => ({ script: ['오토'], perToken: 5 })), spyHooks(), { autoMaxTurns: 10, autoDelayMs: 1000, rng: seatOrderRng })
     coord.startAutoMode()
-    await vi.advanceTimersByTimeAsync(50) // 첫 자동 턴 진행
+    await vi.advanceTimersByTimeAsync(50)
     await flushMicro()
     coord.startTurn(humanMsg('h', '사람입력'))
     await drain()
     expect(coord.isAutoActive()).toBe(false) // 사람 입력 → 자동 정지
-    expect(r.history.find((m) => m.by === 'h')?.text).toBe('사람입력') // 사람 발언 처리됨
+    expect(r.history.find((m) => m.by === 'h')?.text).toBe('사람입력')
     expect(r.status).toBe('idle')
   })
 })

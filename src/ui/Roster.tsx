@@ -33,6 +33,7 @@ export function Roster({ participants, view, colorMap, onWhisper }: RosterProps)
         const { label, cls } = labelFor(view, p)
         const color = colorMap.get(p.id) ?? 'var(--ink)'
         const isAi = p.kind === 'ai'
+        const rank = view.turnOrder.get(p.id) // [227] 이번 턴 발언 순번(있으면 배지)
         return (
           <div
             key={p.id}
@@ -44,6 +45,7 @@ export function Roster({ participants, view, colorMap, onWhisper }: RosterProps)
             <span className="seat">{p.seat}</span>
             <span className="d" style={{ background: color }} />
             <span className="nm" style={{ color }}>{p.name}</span>
+            {rank !== undefined && <span className="rank">{rank}</span>}
             <span className="st">{label}</span>
           </div>
         )

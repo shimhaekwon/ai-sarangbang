@@ -1,7 +1,7 @@
-// Coordinator — Floor 루프 상태머신([222]). single-flight 턴 루프 + **속도 경쟁 floor**([221] R2 원문).
+// Coordinator — Floor 루프 상태머신([222] · [227]). single-flight 턴 루프 + **랜덤 순서 직렬 발언**.
 // [중요] react/react-dom/DOM 미import(core 순수성, [224] §1). UI는 hooks(콜백)로만 구독.
-// 경쟁 모델: 사람 입력 → 후보 전원 동시 생성 → 가장 먼저 토큰 낸 자가 floor 선점·발언, 나머지 즉시 중단(abort).
-//           승자 발언이 끝나면 남은 후보가 그 발언을 본 맥락으로 다시 경쟁·재생성. 큐 소진까지(R1 각 1회, R3).
+// [227] 모델: 사람 입력 → 발언 후보 랜덤 추첨(셔플) → 추첨 순서대로 1명씩 직렬 발언(자원 독점 → 저사양 안정).
+//        순서는 onOrder로 UI에 통지(순번 배지). 사람 인터럽트(D3)는 진행 중 발언 abort 후 다음 턴.
 import type { AgentDriver } from '../drivers/AgentDriver'
 import type { Message, MessageStatus, Participant, ParticipantId, RoomSession, TurnState, Whisper } from './types'
 import { buildSpeakContext, whisperContext, type ContextLimit } from './context'
@@ -13,6 +13,7 @@ export interface CoordinatorHooks {
   onWhisper: (target: ParticipantId, thread: Whisper) => void
   onRoom?: () => void
   onAuto?: (active: boolean) => void // [C3] 자동 대화 모드 on/off 통지(UI 토글 동기화)
+  onOrder?: (ranks: ReadonlyMap<ParticipantId, number>) => void // [227] 발언 순번(배지). 빈 Map = 클리어
 }
 
 export interface CoordinatorOptions {
@@ -21,6 +22,7 @@ export interface CoordinatorOptions {
   contextLimit?: ContextLimit // [M4] 발화 컨텍스트 윈도우(누적 폭증 방지). 미지정 시 무제한
   autoDelayMs?: number // [C3] 자동 대화 턴 간 지연(기본 3000)
   autoMaxTurns?: number // [C3] 자동 대화 최대 연속 턴(폭주 방지, 기본 8)
+  rng?: () => number // [227] 셔플 난수원([0,1)). 테스트 시드 주입. 기본은 전역 Math.random 함수 참조(호출 아님 → core-purity 가드 통과)
 }
 
 const DEFAULT_WHISPER_TIMEOUT_MS = 30_000
@@ -28,13 +30,14 @@ const DEFAULT_WHISPER_TIMEOUT_MS = 30_000
 export class Coordinator {
   private spokeThisTurn = new Set<ParticipantId>()
   private turnState = new Map<ParticipantId, TurnState>()
-  private current: AbortController | null = null // 현재 라운드(경쟁+승자)의 마스터 abort — 사람 인터럽트(D3)용
+  private current: AbortController | null = null // 현재 발언자 abort — 사람 인터럽트(D3)용
   private pending: Message | null = null // [H-1] 대기 사람 입력(최신만). 인터럽트 = 이 슬롯 교체
   private busy = false // [H-1] 턴 루프 single-flight 가드
   private whispers = new Map<ParticipantId, Whisper>() // [H2] 휘발 — RoomSession과 분리([223] §2)
   private readonly whisperTimeoutMs: number
   private readonly willSpeak: (p: Participant) => boolean | Promise<boolean>
   private readonly contextLimit?: ContextLimit
+  private readonly rng: () => number // [227] 셔플 난수원
   // [C3] 자동 대화 모드
   private autoMode = false
   private autoLeft = 0 // 남은 자동 턴(0이면 종료)
@@ -51,6 +54,7 @@ export class Coordinator {
     this.whisperTimeoutMs = opts.whisperTimeoutMs ?? DEFAULT_WHISPER_TIMEOUT_MS
     this.willSpeak = opts.willSpeak ?? (() => true)
     this.contextLimit = opts.contextLimit
+    this.rng = opts.rng ?? Math.random
     this.autoDelayMs = opts.autoDelayMs ?? 3000
     this.autoMaxTurns = opts.autoMaxTurns ?? 8
   }
@@ -87,22 +91,13 @@ export class Coordinator {
     msg.status = status
     this.publishUpdate(msg)
   }
-  // 경쟁에서 토큰을 못 낸(타임아웃/무응답) 후보를 조용히 버리지 않고 공개 로그에 (응답 없음)으로 표시.
-  // status='error' + 빈 텍스트 → UI가 (응답 없음). done이 아니라 컨텍스트엔 미주입([223] §4), MD엔 _(중단/응답없음)_.
-  private indicateNoResponse(by: ParticipantId) {
-    const p = this.room.participants.find((x) => x.id === by)
-    if (!p) return
-    const msg: Message = { id: newMessageId(), turnNo: this.room.turnNo, by, role: p.kind, text: '', status: 'error', ts: Date.now() }
-    this.publishNew(msg)
-    this.setState(by, 'stopped')
-  }
 
   // ===== 진입점(유일) =====
   startTurn(humanMsg: Message) {
     humanMsg.status = 'done' // [C-1]
     this.pending = humanMsg
     if (this.autoMode) this.setAuto(false) // [C3] 사람 입력 → 자동 일시정지(사람 우선)
-    if (this.busy) this.current?.abort() // [D3] 진행 중(경쟁/발언/지연) 즉시 중단. 루프가 pending을 다음 턴으로
+    if (this.busy) this.current?.abort() // [D3] 진행 중(발언/지연) 즉시 중단. 루프가 pending을 다음 턴으로
     else void this.runLoop()
   }
 
@@ -138,7 +133,7 @@ export class Coordinator {
         if (this.pending) {
           const humanMsg = this.pending
           this.pending = null
-          await this.runTurn(humanMsg) // 사람 턴: 전원 속도 경쟁
+          await this.runTurn(humanMsg) // 사람 턴: 랜덤 순서 직렬
         } else {
           await this.runAutoTurn() // [C3] 자동 턴: 한 AI(라운드로빈)만 발언
           this.autoLeft--
@@ -157,6 +152,7 @@ export class Coordinator {
     }
   }
 
+  // [227] 사람 턴 — 발언 후보를 랜덤 추첨한 순서대로 1명씩 직렬 발언.
   private async runTurn(humanMsg: Message) {
     this.room.turnNo++
     this.room.status = 'turn_active'
@@ -167,31 +163,30 @@ export class Coordinator {
     this.setState(humanMsg.by, 'done') // [C-1]
     this.notifyRoom()
 
-    // 발언 후보(AI, R1: 각 1회). D2 willSpeak. 미발언 후보 집합.
-    const remaining = new Set((await this.collectSpeakers()).map((p) => p.id))
-    for (const id of remaining) this.setState(id, 'queued') // 경쟁 대기 표시
+    // 발언 순서 = 매 턴 랜덤 추첨(좌석순 고정 아님). 후보 = AI 전원(D2 willSpeak), R1 각 1회.
+    const order = this.shuffle(await this.collectSpeakers())
+    this.hooks.onOrder?.(new Map(order.map((p, i) => [p.id, i + 1]))) // [227] 1-based 순번(배지)
+    for (const p of order) this.setState(p.id, 'queued') // 대기 표시
 
-    // 속도 경쟁 라운드: 먼저 응답한 후보가 floor 선점·발언 → 나머지 중단 → 남은 후보 재경쟁(재생성). 큐 소진까지(R3).
-    while (remaining.size > 0 && !this.pending) {
-      const { winner, failed } = await this.raceRound(remaining)
-      for (const f of failed) {
-        remaining.delete(f) // 응답 못한 후보(타임아웃/무토큰)는 이번 턴 제외
-        this.indicateNoResponse(f) // 조용한 드랍 대신 공개 로그에 (응답 없음) 표식
-      }
-      if (winner) {
-        remaining.delete(winner)
-        this.spokeThisTurn.add(winner)
-      } else {
-        break // 아무도 응답 못함
-      }
+    // 추첨 순서대로 직렬 발언(자원 독점 → 저사양 안정). 사람 인터럽트(D3)면 즉시 중단(다음 턴으로).
+    for (const p of order) {
+      if (this.pending) break // [D3] 대기 사람 입력 → 루프 탈출, 다음 턴
+      const ac = new AbortController()
+      this.current = ac
+      await this.speakOne(p.id, ac.signal)
+      this.current = null
+      this.spokeThisTurn.add(p.id)
     }
+    // [M2] 인터럽트로 발언 못 한 후보의 queued 잔류 해제(stale 방지)
+    for (const p of order) if (!this.spokeThisTurn.has(p.id)) this.setState(p.id, 'idle')
 
     this.room.floorHolder = null // [H-1] 턴 종료 시에만 null
+    this.hooks.onOrder?.(new Map()) // [C2] 순번 배지 클리어(다음 턴까지 잔류 방지)
     if (!this.pending) this.room.status = 'idle' // 대기 인터럽트 있으면 idle로 안 떨굼
     this.notifyRoom()
   }
 
-  // D2: 발언할 AI를 좌석순으로([H4] tie-break). P0=전원(willSpeak 기본 true). [C1] 훅 throw 가드.
+  // D2: 발언할 AI를 좌석순으로 수집(willSpeak). [C1] 훅 throw 가드. (발언 순서는 runTurn이 셔플)
   private async collectSpeakers(): Promise<Participant[]> {
     const ais = this.room.participants.filter((p) => p.kind === 'ai').sort((a, b) => a.seat - b.seat)
     const speakers: Participant[] = []
@@ -207,88 +202,22 @@ export class Coordinator {
     return speakers
   }
 
-  // 한 라운드 경쟁: remaining 후보를 동시 생성 → 첫 토큰 선점 승자 발언(끝까지), 나머지 abort(다음 라운드 재생성).
-  // 토큰 없이 종료/에러한 후보는 failed(이번 턴 제외). 반환: 승자 + 실패목록.
-  private async raceRound(remaining: Set<ParticipantId>): Promise<{ winner: ParticipantId | null; failed: ParticipantId[] }> {
-    const racers = [...remaining].map((id) => {
-      const ac = new AbortController()
-      const iterator = this.driver.speak(buildSpeakContext(this.room, id, this.contextLimit), ac.signal)[Symbol.asyncIterator]()
-      return { id, ac, iterator }
-    })
-    // [D3] 마스터 abort(사람 인터럽트) → 라운드 전원 취소
-    const master = new AbortController()
-    this.current = master
-    const cancelAll = () => {
-      for (const r of racers) r.ac.abort()
+  // [227] Fisher-Yates 셔플(주입 rng로 결정성). 원본 불변 → 복사본 반환.
+  private shuffle<T>(arr: T[]): T[] {
+    const a = [...arr]
+    for (let i = a.length - 1; i > 0; i--) {
+      const j = Math.floor(this.rng() * (i + 1)) // rng: () => number ∈ [0,1)
+      ;[a[i], a[j]] = [a[j], a[i]]
     }
-    master.signal.addEventListener('abort', cancelAll, { once: true })
-
-    // 각 racer를 첫 유효 토큰까지 진행시키는 프로미스(racer 식별 포함).
-    const firsts = new Map<ParticipantId, Promise<{ id: ParticipantId; token: string | null }>>()
-    for (const r of racers) firsts.set(r.id, this.pullFirstToken(r.id, r.iterator))
-
-    const failed: ParticipantId[] = []
-    let winnerId: ParticipantId | null = null
-    try {
-      while (firsts.size > 0 && !this.pending) {
-        const settled = await Promise.race(firsts.values())
-        firsts.delete(settled.id)
-        if (settled.token !== null) {
-          winnerId = settled.id
-          // 승자 결정 → 나머지 즉시 중단(재생성 대상)
-          for (const r of racers) if (r.id !== winnerId) r.ac.abort()
-          const w = racers.find((r) => r.id === winnerId)!
-          await this.streamWinner(w.id, w.iterator, w.ac.signal, settled.token) // 첫 토큰 + 나머지 스트림
-          break
-        }
-        failed.push(settled.id) // 토큰 없이 종료/에러 → 탈락
-      }
-    } finally {
-      if (!winnerId) cancelAll() // 인터럽트/전원 실패 시 정리
-      this.current = null
-    }
-    return { winner: winnerId, failed }
+    return a
   }
 
-  // 첫 유효 토큰까지 iterator 진행. 토큰 없이 종료/에러면 token=null. (abort 시에도 catch→null)
-  private async pullFirstToken(
-    id: ParticipantId,
-    it: AsyncIterator<string>,
-  ): Promise<{ id: ParticipantId; token: string | null }> {
-    try {
-      for (;;) {
-        const r = await it.next()
-        if (r.done) return { id, token: null }
-        if (r.value) return { id, token: r.value }
-      }
-    } catch {
-      return { id, token: null }
-    }
-  }
-
-  // 승자 발언: floor 부여 + beginMessage + 첫 토큰 + 나머지 스트림. 화자 turn-state 단일 확정([H1]/[H-2]).
-  private async streamWinner(id: ParticipantId, it: AsyncIterator<string>, signal: AbortSignal, firstToken: string): Promise<void> {
+  // [227][H1] 직렬 발언 1건 — floor 연출(streamWinner 계승) + streamMessage 재사용.
+  private async speakOne(id: ParticipantId, signal: AbortSignal): Promise<void> {
     this.room.floorHolder = id // [H-1] 직접 교체(null 경유 안 함)
     this.setState(id, 'speaking')
     this.notifyRoom()
-    const msg = this.beginMessage(id, this.room.turnNo)
-    try {
-      this.appendToken(msg, firstToken) // 경쟁에서 이미 뽑은 첫 토큰
-      for (;;) {
-        if (signal.aborted) throw new DOMException('aborted', 'AbortError')
-        const r = await it.next()
-        if (r.done) break
-        if (r.value) this.appendToken(msg, r.value)
-      }
-      // [H1] 드라이버가 abort 무시하고 끝까지 와도 signal.aborted면 stopped(사람 인터럽트 항상 stopped 보장).
-      const status: MessageStatus = signal.aborted ? 'stopped' : 'done'
-      this.endMessage(msg, status)
-      this.setState(id, status === 'done' ? 'done' : 'stopped')
-    } catch {
-      const st: MessageStatus = signal.aborted ? 'stopped' : 'error' // 부분 응답 보존
-      this.endMessage(msg, st)
-      this.setState(id, 'stopped') // [H-2] 드라이버 에러 = Message:error / Participant:stopped
-    }
+    await this.streamMessage(id, signal) // 빈응답→error("응답 없음")·abort→stopped·드라이버에러→error 내장
   }
 
   // [C3] 자동 턴 — 한 AI(라운드로빈)만 직전 대화에 반응해 발언(사람 opener 없음).
@@ -298,6 +227,7 @@ export class Coordinator {
       this.setAuto(false)
       return
     }
+    this.hooks.onOrder?.(new Map()) // [227][C2] 직전 사람턴 순번 배지 잔류 방지(자동턴 셔플=D-D 후속)
     const speaker = ais[this.autoCursor % ais.length]
     this.autoCursor++
     this.room.turnNo++
@@ -315,7 +245,7 @@ export class Coordinator {
     this.notifyRoom()
   }
 
-  // 단일 AI 발언 스트림(경쟁 없음 — 자동 턴용). 빈 응답은 (응답 없음)으로.
+  // 단일 AI 발언 스트림. 빈 응답은 (응답 없음)으로([227] H2: status='error' + 빈 텍스트).
   private async streamMessage(by: ParticipantId, signal: AbortSignal): Promise<void> {
     const msg = this.beginMessage(by, this.room.turnNo)
     try {
