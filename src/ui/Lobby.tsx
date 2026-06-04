@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { listModels, type OllamaModel } from '../drivers/ollamaApi'
 import { loadConfig, reconcileModels, saveConfig } from '../app/persist'
-import { defaultNameForModel, guessThinking, type AiSlot, type RoomConfig } from '../app/config'
+import { defaultNameForModel, guessThinking, normalizeBaseUrl, type AiSlot, type RoomConfig } from '../app/config'
 import { newId } from '../core/id'
 import { t } from '../i18n'
 
@@ -26,23 +26,31 @@ export function Lobby({ onEnter, onDemo }: LobbyProps) {
   const [models, setModels] = useState<OllamaModel[]>([])
   const [slots, setSlots] = useState<AiSlot[]>([])
   const [humanName, setHumanName] = useState('')
+  const [baseUrl, setBaseUrl] = useState('') // [연결] Ollama 주소(비우면 /ollama proxy, 입력 시 직접 URL)
+  const [errorKind, setErrorKind] = useState<'connect' | 'timeout'>('connect') // [연결] 에러 구분(타임아웃 vs 연결)
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (urlOverride?: string) => {
     setLoadState('loading')
+    const saved = loadConfig()
+    const url = normalizeBaseUrl(urlOverride !== undefined ? urlOverride : saved?.baseUrl) // [연결] scheme 보충·trailing/ 제거
+    setBaseUrl(url)
     try {
-      const ms = await listModels()
+      const ms = await listModels({ baseUrl: url || undefined, timeoutMs: 8000 }) // [연결] 무한 로딩 방지(8s)
       setModels(ms)
-      const saved = loadConfig()
-      if (saved && saved.ais.length > 0) {
-        // 슬롯 그대로 복원(사라진 모델도 유지 — 사용자가 교체 결정). [L-C] think는 재유도(regex drift/손상 대비: 비-thinking → undefined 보장)
-        setSlots(saved.ais.map((a) => ({ ...a, think: guessThinking(a.model) ? a.think ?? false : undefined })))
-        setHumanName(saved.humanName ?? '')
-      } else {
-        setSlots(ms.length > 0 ? [makeSlot(ms[0].name)] : []) // 기본 1슬롯(첫 모델)
-      }
+      // [연결][HIGH] slots는 비었을 때만 복원/생성 — 재연결·재시도가 편집 중 슬롯을 덮어쓰지 않음
+      setSlots((cur) => {
+        if (cur.length > 0) return cur
+        if (saved && saved.ais.length > 0) {
+          // [L-C] think 재유도(regex drift/손상 대비: 비-thinking → undefined 보장)
+          return saved.ais.map((a) => ({ ...a, think: guessThinking(a.model) ? a.think ?? false : undefined }))
+        }
+        return ms.length > 0 ? [makeSlot(ms[0].name)] : [] // 기본 1슬롯(첫 모델)
+      })
+      setHumanName((cur) => cur || (saved?.humanName ?? '')) // 비었을 때만 복원(재연결이 편집 이름 안 덮어씀)
       setLoadState('ready')
-    } catch {
-      setLoadState('error') // §4.8 Ollama 미실행/접근 불가
+    } catch (e) {
+      setErrorKind(e instanceof DOMException && e.name === 'AbortError' ? 'timeout' : 'connect') // [연결] 타임아웃 구분
+      setLoadState('error') // §4.8 Ollama 미실행/접근 불가/시간 초과
     }
   }, [])
 
@@ -76,7 +84,7 @@ export function Lobby({ onEnter, onDemo }: LobbyProps) {
   const enter = () => {
     if (!canEnter) return
     const ais = slots.map((s) => ({ ...s, name: s.name.trim() || defaultNameForModel(s.model) })) // [R2] 빈 이름 보정
-    const cfg: RoomConfig = { v: 1, ais, humanName: humanName.trim() || undefined }
+    const cfg: RoomConfig = { v: 1, ais, humanName: humanName.trim() || undefined, baseUrl: normalizeBaseUrl(baseUrl) || undefined }
     saveConfig(cfg) // [D-5] 전체 config 영속
     onEnter(cfg)
   }
@@ -87,13 +95,30 @@ export function Lobby({ onEnter, onDemo }: LobbyProps) {
         <h1>{t('lobby.title')}</h1>
         <p className="lb-sub">{t('lobby.subtitle')}</p>
 
+        {/* [연결] Ollama 주소 — 항상 표시(list 안 보일 때 수동 지정·재연결) */}
+        <div className="lb-conn">
+          <span className="lb-label">{t('lobby.ollamaUrl')}</span>
+          <input
+            className="lb-name"
+            value={baseUrl}
+            onChange={(e) => setBaseUrl(e.target.value)}
+            placeholder={t('lobby.ollamaProxy')}
+            title={t('lobby.ollamaUrlHint')}
+            aria-label={t('lobby.ollamaUrl')}
+          />
+          <button className="auto-btn" onClick={() => void load(baseUrl)} disabled={loadState === 'loading'}>
+            {t('lobby.reconnect')}
+          </button>
+        </div>
+
         {loadState === 'loading' && <div className="lb-status">{t('lobby.loading')}</div>}
 
         {loadState === 'error' && (
           <div className="lb-error">
-            <div>{t('lobby.error')}</div>
+            <div>{errorKind === 'timeout' ? t('lobby.timeout') : t('lobby.error')}</div>
+            <div className="lb-hint">{t('lobby.connTried', { url: baseUrl || t('lobby.ollamaProxy') })}</div>
             <div className="lb-actions">
-              <button onClick={() => void load()}>{t('lobby.retry')}</button>
+              <button onClick={() => void load(baseUrl)}>{t('lobby.retry')}</button>
               <button onClick={onDemo}>{t('lobby.demo')}</button>
             </div>
           </div>
@@ -104,7 +129,7 @@ export function Lobby({ onEnter, onDemo }: LobbyProps) {
             <div>{t('lobby.empty')}</div>
             <div className="lb-hint">{t('lobby.emptyHint')}</div>
             <div className="lb-actions">
-              <button onClick={() => void load()}>{t('lobby.retry')}</button>
+              <button onClick={() => void load(baseUrl)}>{t('lobby.retry')}</button>
               <button onClick={onDemo}>{t('lobby.demo')}</button>
             </div>
           </div>

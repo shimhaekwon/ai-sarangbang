@@ -13,9 +13,10 @@ export interface AiSlot {
   think?: boolean // [228 M3] 사고모드 tri-state: undefined=미전송(비-thinking 보호) / true·false=명시 전송
 }
 export interface RoomConfig {
-  v: 1 // [228 H3] 스키마 버전 — 영속 호환성(불일치 시 기본값 폴백)
+  v: 1 // [228 H3] 스키마 버전 — 영속 호환성(불일치 시 기본값 폴백). baseUrl은 optional이라 v 유지(기존 저장값 호환)
   ais: AiSlot[]
   humanName?: string // 사람 표시 이름(미지정 시 i18n 'participant.me')
+  baseUrl?: string // [연결] Ollama 주소 override(비우면 config.ollama.baseUrl=/ollama proxy). list 안 보일 때 수동 지정·영속
 }
 
 export interface AppConfig {
@@ -110,4 +111,13 @@ export function defaultNameForModel(model: string): string {
 // [228 §4.9] 사고모드(thinking/reasoning) 모델 추정 — 패턴 매칭. 추정값은 Lobby tri-state 토글 기본값일 뿐(사용자가 보정).
 export function guessThinking(model: string): boolean {
   return /qwen3|exaone.*4|deepseek-r1|think|reason/i.test(model)
+}
+
+// [연결] 사용자 입력 Ollama 주소 정규화 — scheme 없으면 http:// 보충, trailing / 제거. 빈/공백 → '' (= proxy 폴백).
+// 'host:11434' 같은 입력이 fetch에서 상대경로로 오인되는 것을 방지(진단 주소도 실제 호출과 일치).
+export function normalizeBaseUrl(url: string | undefined): string {
+  const u = (url ?? '').trim()
+  if (!u) return ''
+  const withScheme = /^https?:\/\//i.test(u) ? u : `http://${u}`
+  return withScheme.replace(/\/+$/, '') // trailing slash 제거(// 이중 경로 방지)
 }

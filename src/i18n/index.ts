@@ -38,7 +38,7 @@ const ko: Dict = {
   'lobby.error': 'Ollama에 연결할 수 없습니다. 실행 중인지 확인하세요.',
   'lobby.retry': '다시 시도',
   'lobby.demo': 'Mock 데모로 시작',
-  'lobby.empty': '설치된 모델이 없습니다',
+  'lobby.empty': 'Ollama는 연결됐으나 설치된 모델이 0개입니다',
   'lobby.emptyHint': '터미널에서 모델을 받은 뒤(ollama pull) 다시 시도하세요',
   'lobby.missing': '저장된 모델이 목록에 없습니다: {models}',
   'lobby.human': '내 이름',
@@ -50,6 +50,12 @@ const ko: Dict = {
   'lobby.addAi': '+ AI 추가',
   'lobby.enter': '입장',
   'lobby.gate': 'AI를 1명 이상 추가하세요',
+  'lobby.ollamaUrl': 'Ollama 주소',
+  'lobby.ollamaProxy': '자동 (localhost:11434)',
+  'lobby.ollamaUrlHint': '비우면 자동. 다른 PC·포트면 http://주소:11434 (그 Ollama에 OLLAMA_ORIGINS 허용 필요)',
+  'lobby.reconnect': '재연결',
+  'lobby.connTried': '연결 시도한 주소: {url}',
+  'lobby.timeout': '응답 시간 초과(8초). 주소를 확인하거나 재연결하세요',
   'room.settings': '⚙ 설정',
 }
 
@@ -88,7 +94,7 @@ const en: Dict = {
   'lobby.error': 'Cannot reach Ollama. Make sure it is running.',
   'lobby.retry': 'Retry',
   'lobby.demo': 'Start Mock demo',
-  'lobby.empty': 'No models installed',
+  'lobby.empty': 'Ollama connected, but no models installed',
   'lobby.emptyHint': 'Pull a model (ollama pull) then retry',
   'lobby.missing': 'Saved models not in list: {models}',
   'lobby.human': 'My name',
@@ -100,6 +106,12 @@ const en: Dict = {
   'lobby.addAi': '+ Add AI',
   'lobby.enter': 'Enter',
   'lobby.gate': 'Add at least one AI',
+  'lobby.ollamaUrl': 'Ollama URL',
+  'lobby.ollamaProxy': 'auto (localhost:11434)',
+  'lobby.ollamaUrlHint': 'Empty = auto. For another PC/port use http://host:11434 (that Ollama needs OLLAMA_ORIGINS)',
+  'lobby.reconnect': 'Reconnect',
+  'lobby.connTried': 'Tried address: {url}',
+  'lobby.timeout': 'Timed out (8s). Check the address or reconnect',
   'room.settings': '⚙ Settings',
 }
 

@@ -63,4 +63,11 @@ describe('persist([228] §4.7 / H3)', () => {
     const dup: RoomConfig = { v: 1, ais: [{ id: 'a', name: 'A', model: 'gone' }, { id: 'b', name: 'B', model: 'gone' }] }
     expect(reconcileModels(dup, ['m1'])).toEqual(['gone']) // 한 번만
   })
+
+  it('[연결] baseUrl round-trip + 비-문자열 거부(v:1 호환)', () => {
+    saveConfig({ ...cfg, baseUrl: 'http://pc2:11434' })
+    expect(loadConfig()?.baseUrl).toBe('http://pc2:11434')
+    localStorage.setItem(KEY, JSON.stringify({ v: 1, ais: [], baseUrl: 123 }))
+    expect(loadConfig()).toBeNull() // baseUrl 비-문자열 → null
+  })
 })

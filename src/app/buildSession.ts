@@ -9,7 +9,7 @@ import type { AgentDriver } from '../drivers/AgentDriver'
 import { newSessionId } from '../core/id'
 import type { Participant, RoomSession } from '../core/types'
 import { createRoomStore, type RoomStore } from './store'
-import { config, demoMockConfig, demoParticipants, ollamaSystem, type RoomConfig } from './config'
+import { config, demoMockConfig, demoParticipants, normalizeBaseUrl, ollamaSystem, type RoomConfig } from './config'
 import { setLocale, t } from '../i18n'
 
 export interface Session {
@@ -52,7 +52,7 @@ export function buildSession(roomConfig: RoomConfig): Session {
     createOllamaDriver({
       model: (p) => map.get(p.id)?.model ?? config.ollama.model, // AI별 모델(없으면 폴백)
       think: (p) => map.get(p.id)?.think, // [M3] tri-state(undefined=미전송)
-      baseUrl: config.ollama.baseUrl,
+      baseUrl: normalizeBaseUrl(roomConfig.baseUrl) || config.ollama.baseUrl, // [연결] 로비 지정 주소(정규화) 우선, 비우면 proxy
       system: ollamaSystem,
     }),
   )

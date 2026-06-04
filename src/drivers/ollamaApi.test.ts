@@ -45,12 +45,23 @@ describe('listModels([228] §4.2)', () => {
   it('GET /api/tags 호출(기본 baseUrl /ollama)', async () => {
     const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ models: [] }))
     await listModels({ fetchImpl })
-    expect(fetchImpl).toHaveBeenCalledWith('/ollama/api/tags', { method: 'GET' })
+    expect(fetchImpl).toHaveBeenCalledWith('/ollama/api/tags', { method: 'GET', signal: expect.any(AbortSignal) })
   })
 
   it('baseUrl 주입 시 그 경로로 호출', async () => {
     const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ models: [] }))
     await listModels({ fetchImpl, baseUrl: 'http://localhost:11434' })
-    expect(fetchImpl).toHaveBeenCalledWith('http://localhost:11434/api/tags', { method: 'GET' })
+    expect(fetchImpl).toHaveBeenCalledWith('http://localhost:11434/api/tags', { method: 'GET', signal: expect.any(AbortSignal) })
+  })
+
+  it('[연결] timeoutMs 초과 → abort throw(무한 로딩 방지)', async () => {
+    // 영원히 pending → timeout이 signal abort → reject
+    const hangFetch = vi.fn(
+      (_url: string, opts?: { signal?: AbortSignal }) =>
+        new Promise<Response>((_, reject) => {
+          opts?.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')))
+        }),
+    )
+    await expect(listModels({ fetchImpl: hangFetch as unknown as typeof fetch, timeoutMs: 20 })).rejects.toThrow()
   })
 })

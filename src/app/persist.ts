@@ -59,6 +59,7 @@ function isValidConfig(v: unknown): v is RoomConfig {
   if (c.v !== SCHEMA_V) return false // 버전 불일치 → 무시(스키마 진화 시 안전)
   if (!Array.isArray(c.ais)) return false
   if (c.humanName !== undefined && typeof c.humanName !== 'string') return false
+  if (c.baseUrl !== undefined && typeof c.baseUrl !== 'string') return false // [연결] optional 주소
   return c.ais.every(isValidSlot)
 }
 

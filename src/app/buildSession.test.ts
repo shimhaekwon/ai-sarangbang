@@ -68,4 +68,14 @@ describe('buildSession([228] §4.4)', () => {
     const s = buildDemoSession()
     expect(s.room.participants.map((p) => p.id)).toEqual(['me', 'exaone', 'phi4mini', 'qwen3'])
   })
+
+  it('[연결] roomConfig.baseUrl이 fetch 주소에 반영(원격 Ollama)', async () => {
+    const fetchSpy = vi.fn().mockImplementation(async () => streamRes(['x']))
+    vi.stubGlobal('fetch', fetchSpy)
+    const s = buildSession({ v: 1, ais: [{ id: 'x1', name: 'A', model: 'm' }], baseUrl: 'http://pc2:11434' })
+    s.coord.startTurn({ id: 'h1', turnNo: 0, by: 'me', role: 'human', text: 'hi', status: 'streaming', ts: 0 })
+    await vi.waitFor(() => expect(fetchSpy).toHaveBeenCalled())
+    expect(fetchSpy.mock.calls[0][0]).toBe('http://pc2:11434/api/chat')
+    s.coord.dispose()
+  })
 })

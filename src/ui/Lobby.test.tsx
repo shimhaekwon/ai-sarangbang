@@ -63,4 +63,25 @@ describe('Lobby([228])', () => {
     expect(screen.getAllByLabelText(t('lobby.remove'))).toHaveLength(6) // 1 + 5 = 6 상한
     expect(screen.getByText(t('lobby.addAi'))).toBeDisabled()
   })
+
+  it('[연결] 재연결이 편집 중 슬롯을 덮어쓰지 않음(HIGH)', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => tagsRes(['m1', 'm2'])))
+    render(<Lobby onEnter={() => {}} onDemo={() => {}} />)
+    await waitFor(() => expect(screen.getByText(t('lobby.addAi'))).toBeEnabled())
+    fireEvent.click(screen.getByText(t('lobby.addAi'))) // 편집: 2슬롯
+    expect(screen.getAllByLabelText(t('lobby.remove'))).toHaveLength(2)
+    fireEvent.click(screen.getByText(t('lobby.reconnect'))) // 재연결
+    await waitFor(() => expect(screen.getByText(t('lobby.addAi'))).toBeEnabled())
+    expect(screen.getAllByLabelText(t('lobby.remove'))).toHaveLength(2) // 편집 보존(기본 1슬롯으로 덮어쓰지 않음)
+  })
+
+  it('[연결] 입장 시 baseUrl 정규화(scheme 없는 host:port → http:// 보충)', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => tagsRes(['m1'])))
+    const onEnter = vi.fn()
+    render(<Lobby onEnter={onEnter} onDemo={() => {}} />)
+    await waitFor(() => expect(screen.getByText(t('lobby.enter'))).toBeEnabled())
+    fireEvent.change(screen.getByLabelText(t('lobby.ollamaUrl')), { target: { value: 'localhost:11434' } })
+    fireEvent.click(screen.getByText(t('lobby.enter')))
+    expect(onEnter.mock.calls[0][0].baseUrl).toBe('http://localhost:11434')
+  })
 })

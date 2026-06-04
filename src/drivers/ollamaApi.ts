@@ -23,6 +23,7 @@ interface RawTagsResponse {
 export interface ListModelsOptions {
   baseUrl?: string // 기본 '/ollama'(dev·preview proxy). 직접 호출 시 'http://localhost:11434'(CORS 확인 필요)
   fetchImpl?: typeof fetch // 테스트 주입(기본 전역 fetch)
+  timeoutMs?: number // [연결] 무한 로딩 방지 — 초과 시 abort → throw(로비가 §4.8 에러 처리). 미지정 시 무제한
 }
 
 const DEFAULT_BASE_URL = '/ollama'
@@ -31,15 +32,21 @@ const DEFAULT_BASE_URL = '/ollama'
 export async function listModels(opts: ListModelsOptions = {}): Promise<OllamaModel[]> {
   const baseUrl = opts.baseUrl ?? DEFAULT_BASE_URL
   const doFetch = opts.fetchImpl ?? fetch
-  const res = await doFetch(`${baseUrl}/api/tags`, { method: 'GET' })
-  if (!res.ok) throw new Error(`Ollama HTTP ${res.status}`)
-  const data = (await res.json()) as RawTagsResponse
-  const raw = Array.isArray(data?.models) ? data.models : [] // models 부재/비배열 → 빈 목록(throw 아님)
-  const out: OllamaModel[] = []
-  for (const m of raw) {
-    const name = m?.name ?? m?.model // name 우선, 폴백 model
-    if (typeof name !== 'string' || !name) continue // 이름 없는 엔트리 스킵
-    out.push({ name, parameterSize: m?.details?.parameter_size, family: m?.details?.family, size: m?.size })
+  const ac = new AbortController()
+  const to = opts.timeoutMs ? setTimeout(() => ac.abort(), opts.timeoutMs) : undefined // [연결] 무한 로딩 방지
+  try {
+    const res = await doFetch(`${baseUrl}/api/tags`, { method: 'GET', signal: ac.signal })
+    if (!res.ok) throw new Error(`Ollama HTTP ${res.status}`)
+    const data = (await res.json()) as RawTagsResponse
+    const raw = Array.isArray(data?.models) ? data.models : [] // models 부재/비배열 → 빈 목록(throw 아님)
+    const out: OllamaModel[] = []
+    for (const m of raw) {
+      const name = m?.name ?? m?.model // name 우선, 폴백 model
+      if (typeof name !== 'string' || !name) continue // 이름 없는 엔트리 스킵
+      out.push({ name, parameterSize: m?.details?.parameter_size, family: m?.details?.family, size: m?.size })
+    }
+    return out
+  } finally {
+    if (to) clearTimeout(to)
   }
-  return out
 }

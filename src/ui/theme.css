@@ -158,6 +158,8 @@ body {
   border-radius: 5px; padding: 6px 9px; margin-bottom: 14px;
 }
 .lb-human { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; }
+.lb-conn { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; } /* [연결] Ollama 주소 입력 */
+.lb-conn .lb-name { flex: 1; }
 .lb-label { color: var(--dim); font-size: 12px; min-width: 56px; }
 .lb-slots { display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px; }
 .lb-slot { display: flex; align-items: center; gap: 8px; }
