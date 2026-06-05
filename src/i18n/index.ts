@@ -4,8 +4,8 @@ export type Locale = 'ko' | 'en'
 type Dict = Record<string, string>
 
 const ko: Dict = {
-  'app.title': '■ 사랑방 ■',
-  'sys.enter': '── 사랑방에 입장했습니다 ──',
+  'app.title': '■ AI들과 수다방 ■',
+  'sys.enter': '── AI들과 수다방에 입장했습니다 ──',
   'sys.join': '* {names} 님이 입장하셨습니다',
   'sys.roundEnd': '── 라운드 {n} 종료 ──',
   'status.queued': '대기',
@@ -32,7 +32,7 @@ const ko: Dict = {
   'auto.turnsHint': '자동 대화 최대 턴 (1~99)',
   'participant.me': '나',
   // [228] 로비(진입 모델 선택)
-  'lobby.title': '■ 사랑방 — 입장 ■',
+  'lobby.title': '■ AI들과 수다방 — 입장 ■',
   'lobby.subtitle': '로컬 AI를 골라 대화를 시작하세요',
   'lobby.loading': '모델 목록 불러오는 중…',
   'lobby.error': 'Ollama에 연결할 수 없습니다. 실행 중인지 확인하세요.',
@@ -60,8 +60,8 @@ const ko: Dict = {
 }
 
 const en: Dict = {
-  'app.title': '■ Sarangbang ■',
-  'sys.enter': '── You have entered the Sarangbang ──',
+  'app.title': '■ Chat with AIs ■',
+  'sys.enter': '── You have entered Chat with AIs ──',
   'sys.join': '* {names} joined',
   'sys.roundEnd': '── Round {n} ended ──',
   'status.queued': 'queued',
@@ -88,7 +88,7 @@ const en: Dict = {
   'auto.turnsHint': 'Max auto-chat turns (1-99)',
   'participant.me': 'Me',
   // [228] lobby (entry model selection)
-  'lobby.title': '■ Sarangbang — Enter ■',
+  'lobby.title': '■ Chat with AIs — Enter ■',
   'lobby.subtitle': 'Pick local AIs and start chatting',
   'lobby.loading': 'Loading model list…',
   'lobby.error': 'Cannot reach Ollama. Make sure it is running.',

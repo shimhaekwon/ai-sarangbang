@@ -68,11 +68,11 @@ export function demoParticipants(): Participant[] {
   ]
 }
 
-// Ollama system 프롬프트(persona + 라이브 사랑방 프레이밍). 한글 프레이밍은 app 계층이라 허용([221] §6은 UI 대상).
+// Ollama system 프롬프트(persona + 최소 채팅 프레이밍). 한글 프레이밍은 app 계층이라 허용([221] §6은 UI 대상).
 export function ollamaSystem(p: Participant): string {
   const persona = p.persona ? `${p.persona}. ` : '' // persona 미지정 시 모델 기본 voice(최소 프레이밍만)
   const keepChar = p.persona ? '캐릭터를 유지하며 ' : ''
-  return `당신은 '${p.name}'입니다. ${persona}90년대 PC통신 '사랑방' 라이브 그룹 채팅에 참여 중입니다. ${keepChar}한국어로 1~2문장 짧게 발언하세요. 다른 참가자 발언은 [이름] 형식으로 주어집니다. 당신 차례엔 이름 접두 없이 본문만 답하세요.`
+  return `당신은 '${p.name}'입니다. ${persona}${keepChar}한국어로 1~2문장 짧게 발언하세요. 다른 참가자 발언은 [이름] 형식으로 주어집니다. 당신 차례엔 이름 접두 없이 본문만 답하세요.`
 }
 
 // 데모 MockDriver 대사 — 턴마다 순환([225] §3 저녁메뉴 시연 차용). 사람이 새 턴을 열 때마다 다음 대사로.
