@@ -48,17 +48,19 @@ export function Room({ room, store, coord, onLeave }: RoomProps) {
         <span className="dot" style={{ background: '#28c840' }} />
         <span className="t">{t('app.title')}</span>
         <span className="auto-group">
-          <input
-            type="number"
-            className="auto-turns"
-            min={AUTO_TURNS_MIN}
-            max={AUTO_TURNS_MAX}
-            value={maxTurns}
-            disabled={view.autoActive}
-            onChange={(e) => setMaxTurns(Number(e.target.value))}
-            aria-label={t('auto.turns')}
-            title={t('auto.turnsHint')}
-          />
+          <label className="auto-label">
+            {t('auto.turns')}
+            <input
+              type="number"
+              className="auto-turns"
+              min={AUTO_TURNS_MIN}
+              max={AUTO_TURNS_MAX}
+              value={maxTurns}
+              disabled={view.autoActive}
+              onChange={(e) => setMaxTurns(Number(e.target.value))}
+              title={t('auto.turnsHint')}
+            />
+          </label>
           <button
             className="auto-btn"
             aria-pressed={view.autoActive}

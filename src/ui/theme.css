@@ -39,6 +39,7 @@ body {
 .bar .t { color: #cfd8ff; }
 .bar .savebar { margin-left: 8px; }
 .auto-group { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; }
+.auto-label { display: inline-flex; align-items: center; gap: 6px; font-family: var(--mono); font-size: 12px; color: #cfd8ff; cursor: pointer; white-space: nowrap; }
 .auto-turns {
   width: 3.4em; font-family: var(--mono); font-size: 12px; text-align: center;
   background: #0d1235; color: var(--ink); border: 1px solid #2c3c8e; border-radius: 5px; padding: 4px;

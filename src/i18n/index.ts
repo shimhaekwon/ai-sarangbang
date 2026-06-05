@@ -28,7 +28,7 @@ const ko: Dict = {
   'save.note': '귓속말 제외',
   'auto.start': '자동 진행',
   'auto.stop': '멈춤',
-  'auto.turns': '턴 수',
+  'auto.turns': '대화 턴',
   'auto.turnsHint': '자동 대화 최대 턴 (1~99)',
   'participant.me': '나',
   // [228] 로비(진입 모델 선택)
@@ -84,7 +84,7 @@ const en: Dict = {
   'save.note': 'whisper excluded',
   'auto.start': 'Auto',
   'auto.stop': 'Stop',
-  'auto.turns': 'Turns',
+  'auto.turns': 'Chat turns',
   'auto.turnsHint': 'Max auto-chat turns (1-99)',
   'participant.me': 'Me',
   // [228] lobby (entry model selection)
